@@ -1,17 +1,39 @@
-import streamlit as st
-import pandas as pd
+import os
+import io
 import sqlite3
 import datetime
-import io
+import pandas as pd
+import streamlit as st
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
 
 # ==================== PAGE CONFIG ====================
 st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
+
+LOGO_PATH = "logo.png"
+CLASS_LEVELS = ["P1A", "P1B", "P2A", "P2B", "P3A", "P3B", "P4A", "P4B", "P5", "P6"]
+SUBJECT_LIST = ["English", "Kinyarwanda", "Mathematics", "SET", "SST", "French", "Kiswahili"]
+PAYMENT_MONTHS = [
+    "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05",
+    "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12"
+]
+MONTHLY_FEE = 5000
+SALARY_DEFAULTS = {
+    "Teacher": 50000,
+    "Cleaner": 25000,
+    "Safe Walker": 15000,
+    "Security Guard": 30000,
+    "Administration": 60000,
+    "Register Officer": 50000
+}
 
 # ==================== TRANSLATIONS (4 LANGUAGES) ====================
 TRANSLATIONS = {
     "English": {
         "title": "IGISUBIZO ACADEMY",
-        "subtitle": "School Management, Finance & Communication System",
+        "subtitle": "School Management, Finance, Conduct & Report Card System",
         "login_header": "System Login Portal",
         "select_role": "Select Portal Role",
         "username": "Username / Parent Phone",
@@ -19,24 +41,27 @@ TRANSLATIONS = {
         "login_btn": "Login",
         "logout_btn": "Logout",
         "menu": "Navigation Menu",
-        "dashboard": "Dashboard",
-        "students": "Students (By Grade)",
+        "dashboard": "Executive Dashboard (All Departments)",
+        "students": "Students (By Class Level)",
         "grades": "Grades & Progress",
-        "attendance": "Attendance",
-        "payments": "Payments (Dec 2026 - Dec 2027)",
+        "report_card": "Generate Report Card (PDF)",
+        "attendance": "Class Attendance",
+        "conduct": "Conduct (Students & Staff)",
+        "payments": "Payments (Daily, Weekly, Monthly & Unpaid)",
         "finance": "Monthly Budget & Expenses",
         "reports": "Teacher Weekly Reports",
-        "staff": "Staff & Workers",
+        "staff": "Staff, Salaries & Accounts",
+        "tasks": "Task Assignments",
         "chat": "Communication & Parent Requests",
+        "change_pwd": "Change Password",
         "active_students": "Active Students",
         "total_collected": "Total Fees Collected (RWF)",
-        "select_grade": "Select Grade Level First",
-        "status": "Status",
+        "select_grade": "Select Class Level First",
         "save": "Save",
     },
     "Kinyarwanda": {
         "title": "IGISUBIZO ACADEMY",
-        "subtitle": "Sisitemu y'Ishuri, Imari n'Itumanaho",
+        "subtitle": "Sisitemu y'Ishuri, Imari, Imyitwarire n'Indangamanota",
         "login_header": "Kwinjira muri Sisitemu",
         "select_role": "Hitamo Urwego",
         "username": "Izina / Telefoni y'Umubyeyi",
@@ -44,24 +69,27 @@ TRANSLATIONS = {
         "login_btn": "Injira",
         "logout_btn": "Sohoka",
         "menu": "Ibice bya Sisitemu",
-        "dashboard": "Incamake (Dashboard)",
+        "dashboard": "Incamake y'Amashami Yose (Dashboard)",
         "students": "Abanyeshuri (Ku Ishuri)",
         "grades": "Amanota n'Iterambere",
-        "attendance": "Kwitabira Ishuri",
-        "payments": "Ubwishyu (Ukuboza 2026 - Ukuboza 2027)",
+        "report_card": "Indangamanota (PDF Report Card)",
+        "attendance": "Kwitabira Ishuri (Attendance)",
+        "conduct": "Imyitwarire (Abanyeshuri n'Abakozi)",
+        "payments": "Ubwishyu (Buri Munsi, Icyumweru, Ukwezi)",
         "finance": "Ingengo y'Imari n'Ibyakoreshejwe",
         "reports": "Raporo y'Icyumweru y'Umwarimu",
-        "staff": "Abakozi Bose b'Ikigo",
+        "staff": "Abakozi, Imishahara & Konti",
+        "tasks": "Gutanga Inshingano (Tasks)",
         "chat": "Itumanaho n'Impushya z'Ababyeyi",
+        "change_pwd": "Guhindura Ijambo ry'Ibanga",
         "active_students": "Abanyeshuri Biga (Active)",
         "total_collected": "Amafaranga Yose Yishyuwe (RWF)",
-        "select_grade": "Banza Uhitemo Ishuri (Grade)",
-        "status": "Imimerere",
+        "select_grade": "Banza Uhitemo Ishuri (Class Level)",
         "save": "Bika Amakuru",
     },
     "French": {
         "title": "IGISUBIZO ACADEMY",
-        "subtitle": "Système de Gestion Scolaire, Finance et Communication",
+        "subtitle": "Système de Gestion Scolaire, Conduite et Bulletins",
         "login_header": "Portail de Connexion",
         "select_role": "Choisir le Rôle",
         "username": "Nom d'utilisateur / Téléphone Parent",
@@ -69,24 +97,27 @@ TRANSLATIONS = {
         "login_btn": "Se connecter",
         "logout_btn": "Déconnexion",
         "menu": "Menu Principal",
-        "dashboard": "Tableau de Bord",
+        "dashboard": "Tableau de Bord (Tous Départements)",
         "students": "Élèves (Par Classe)",
         "grades": "Notes et Progrès",
-        "attendance": "Présences",
-        "payments": "Paiements (Déc 2026 - Déc 2027)",
+        "report_card": "Bulletin Scolaire (PDF)",
+        "attendance": "Présences par Classe",
+        "conduct": "Conduite (Élèves & Personnel)",
+        "payments": "Paiements (Jour, Semaine, Mois & Impayés)",
         "finance": "Budget Mensuel et Dépenses",
         "reports": "Rapport Hebdomadaire Enseignant",
-        "staff": "Personnel et Employés",
+        "staff": "Personnel, Salaires & Comptes",
+        "tasks": "Attribution des Tâches",
         "chat": "Communication et Demandes Parents",
+        "change_pwd": "Changer le Mot de Passe",
         "active_students": "Élèves Actifs",
         "total_collected": "Total Frais Perçus (RWF)",
         "select_grade": "Choisissez d'abord la Classe",
-        "status": "Statut",
         "save": "Enregistrer",
     },
     "Kiswahili": {
         "title": "IGISUBIZO ACADEMY",
-        "subtitle": "Mfumo wa Usimamizi wa Shule, Fedha na Mawasiliano",
+        "subtitle": "Mfumo wa Usimamizi wa Shule, Nidhamu na Ripoti",
         "login_header": "Sehemu ya Kuingia",
         "select_role": "Chagua Nafasi Yako",
         "username": "Jina la Mtumiaji / Simu ya Mzazi",
@@ -94,28 +125,25 @@ TRANSLATIONS = {
         "login_btn": "Ingia",
         "logout_btn": "Toka",
         "menu": "Menyu Kuu",
-        "dashboard": "Dashibodi",
+        "dashboard": "Dashibodi (Idara Zote)",
         "students": "Wanafunzi (Kwa Darasa)",
         "grades": "Alama na Maendeleo",
-        "attendance": "Mahudhurio",
-        "payments": "Malipo (Des 2026 - Des 2027)",
+        "report_card": "Ripoti ya Mwanafunzi (PDF)",
+        "attendance": "Mahudhurio ya Darasa",
+        "conduct": "Nidhamu (Wanafunzi na Wafanyakazi)",
+        "payments": "Malipo (Kila Siku, Wiki, Mwezi)",
         "finance": "Bajeti ya Mwezi na Matumizi",
         "reports": "Ripoti ya Wiki ya Mwalimu",
-        "staff": "Wafanyakazi Wote",
+        "staff": "Wafanyakazi, Mishahara & Akaunti",
+        "tasks": "Ugawaji wa Kazi",
         "chat": "Mawasiliano na Maombi ya Wazazi",
+        "change_pwd": "Badilisha Nenosiri",
         "active_students": "Wanafunzi Wanaosoma (Active)",
         "total_collected": "Jumla ya Ada Zilizokusanywa (RWF)",
         "select_grade": "Chagua Darasa Kwanza",
-        "status": "Hali",
         "save": "Hifadhi",
     }
 }
-
-PAYMENT_MONTHS = [
-    "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05",
-    "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12"
-]
-MONTHLY_FEE = 5000
 
 # ==================== DATABASE SETUP & MIGRATION ====================
 def get_conn():
@@ -224,11 +252,16 @@ def init_db():
             role TEXT NOT NULL,
             phone TEXT,
             assigned_grade TEXT,
+            assigned_subject TEXT,
             monthly_salary REAL,
             status TEXT DEFAULT 'Active',
             hired_date TEXT
         )
     ''')
+    try:
+        c.execute("ALTER TABLE staff ADD COLUMN assigned_subject TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     c.execute('''
         CREATE TABLE IF NOT EXISTS messages (
@@ -245,39 +278,21 @@ def init_db():
     ''')
 
     c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password TEXT,
-            role TEXT,
-            full_name TEXT
-        )
-    ''')
-
-    c.execute("SELECT COUNT(*) FROM users")
-    if c.fetchone() == 0:
-        default_users = [
-            ("admin", "admin123", "Administration", "Head Administrator"),
-            ("register", "reg123", "Register Officer", "School Registrar"),
-            ("teacher", "teach123", "Teacher", "Class Teacher")
-        ]
-        c.executemany("INSERT INTO users (username, password, role, full_name) VALUES (?, ?, ?, ?)", default_users)
-
-    conn.commit()
-    conn.close()
-
-init_db()
 # ==================== SESSION STATE & LANGUAGE ====================
-if "lang" not in st.session_state:
-    st.session_state.lang = "English"
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.role = None
-    st.session_state.user_name = None
-    st.session_state.parent_phone = None
+for key, val in {
+    "lang": "English",
+    "logged_in": False,
+    "role": None,
+    "username": None,
+    "user_name": None,
+    "parent_phone": None,
+    "assigned_class": "ALL",
+    "assigned_subject": "ALL"
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
-lang_col1, lang_col2 = st.columns(2)
-
+lang_col1, lang_col2 = st.columns([3, 1])
 with lang_col2:
     selected_lang = st.selectbox(
         "🌐 Language / Ururimi",
@@ -288,20 +303,17 @@ with lang_col2:
 
 T = TRANSLATIONS[st.session_state.lang]
 
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #0B6E4F 0%, #0A3D62 100%);
-        padding: 1.2rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin-bottom: 1.5rem;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown(f"<div class='main-header'><h1>🎓 {T['title']}</h1><p>{T['subtitle']}</p></div>", unsafe_allow_html=True)
+head_c1, head_c2 = st.columns([1, 5])
+with head_c1:
+    if os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, width=110)
+with head_c2:
+    st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #0B6E4F 0%, #0A3D62 100%); padding: 1.2rem; border-radius: 10px; color: white;">
+        <h1 style="margin:0;">{T['title']}</h1>
+        <p style="margin:0;">{T['subtitle']}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ==================== LOGIN PORTAL ====================
 if not st.session_state.logged_in:
@@ -325,8 +337,8 @@ if not st.session_state.logged_in:
                 if not df_p.empty and password_input in ["1234", username_input.strip()]:
                     st.session_state.logged_in = True
                     st.session_state.role = "Parents"
-                    st.session_state.user_name = df_p.iloc[0]["parent_name"]
-
+                    st.session_state.username = username_input.strip()
+                    st.session_state.user_name = df_p.iloc[0]["parent_name"] or "Parent"
                     st.session_state.parent_phone = username_input.strip()
                     st.rerun()
                 else:
@@ -339,535 +351,140 @@ if not st.session_state.logged_in:
                 if not df_u.empty:
                     st.session_state.logged_in = True
                     st.session_state.role = portal_role
+                    st.session_state.username = df_u.iloc[0]["username"]
                     st.session_state.user_name = df_u.iloc[0]["full_name"]
-
+                    st.session_state.assigned_class = df_u.iloc[0]["assigned_class"] or "ALL"
+                    st.session_state.assigned_subject = df_u.iloc[0]["assigned_subject"] or "ALL"
+                    st.rerun()
                 else:
                     st.error("Invalid credentials for selected role.")
             conn.close()
 
     with col2:
         st.info("""
-        **Demo Portal Logins:**
+        **Default Demo Logins:**
         * **Administration:** `admin` / `admin123`
         * **Register Officer:** `register` / `reg123`
-        * **Teacher:** `teacher` / `teach123`
-        * **Parents:** Enter registered *Parent Phone* & PIN `1234`
+        * **Teacher:** `teacher` / `teach123` *(or individual teacher login created by Admin)*
+        * **Parents:** Registered *Parent Phone* & PIN `1234`
         """)
     st.stop()
 
-# ==================== SIDEBAR NAVIGATION (ROLE-BASED) ====================
-st.sidebar.success(f"👤 {st.session_state.user_name}\n\n**Role:** {st.session_state.role}")
+# ==================== SIDEBAR NAVIGATION ====================
+role = st.session_state.role
+st.sidebar.success(f"👤 {st.session_state.user_name}\n\n**Role:** {role}")
+if role == "Teacher":
+    st.sidebar.info(f"🏫 Class: **{st.session_state.assigned_class}**\n\n📚 Subject: **{st.session_state.assigned_subject}**")
+
 if st.sidebar.button(T["logout_btn"]):
     st.session_state.logged_in = False
     st.session_state.role = None
     st.rerun()
 
-role = st.session_state.role
-
 if role == "Administration":
     menu_options = [
-        T["dashboard"], T["students"], T["grades"], T["attendance"],
-        T["payments"], T["finance"], T["reports"], T["staff"], T["chat"]
+        T["dashboard"], T["students"], T["grades"], T["report_card"], T["attendance"],
+        T["conduct"], T["payments"], T["finance"], T["reports"], T["staff"],
+        T["tasks"], T["chat"], T["change_pwd"]
     ]
 elif role == "Register Officer":
     menu_options = [
-        T["dashboard"], T["students"], T["payments"], T["chat"]
+        T["dashboard"], T["students"], T["payments"], T["conduct"],
+        T["tasks"], T["chat"], T["change_pwd"]
     ]
 elif role == "Teacher":
     menu_options = [
-        T["grades"], T["attendance"], T["reports"], T["chat"]
+        T["grades"], T["attendance"], T["conduct"], T["reports"],
+        T["tasks"], T["chat"], T["change_pwd"]
     ]
 else:
     menu_options = [
-        T["chat"], T["grades"], T["payments"]
+        T["chat"], T["grades"], T["report_card"], T["payments"]
     ]
 
 menu = st.sidebar.radio(T["menu"], menu_options)
 
-# ==================== 1. DASHBOARD ====================
+# ==================== 1. EXECUTIVE DASHBOARD (ALL DEPARTMENTS & PORTALS) ====================
 if menu == T["dashboard"]:
     st.subheader(f"📊 {T['dashboard']}")
     conn = get_conn()
     active_students = pd.read_sql_query("SELECT * FROM students WHERE status='Active'", conn)
-    payments_df = pd.read_sql_query("""
-        SELECT p.*, s.status FROM payments p
-        JOIN students s ON p.student_id = s.student_id
-        WHERE s.status = 'Active'
-    """, conn)
+    payments_df = pd.read_sql_query(
+        "SELECT p.*, s.student_name, s.grade FROM payments p JOIN students s ON p.student_id = s.student_id WHERE s.status = 'Active'",
+        conn
+    )
     expenses_df = pd.read_sql_query("SELECT * FROM expenses", conn)
-    conn.close()
+    budgets_df = pd.read_sql_query("SELECT * FROM monthly_budgets", conn)
+    staff_df = pd.read_sql_query("SELECT * FROM staff WHERE status='Active'", conn)
+    tasks_df = pd.read_sql_query("SELECT * FROM tasks", conn)
+    msgs_df = pd.read_sql_query("SELECT * FROM messages WHERE sender_role='Parent'", conn)
+    att_today = pd.read_sql_query("SELECT * FROM attendance WHERE date = ?", conn, params=(datetime.date.today().isoformat(),))
+    pwd_reqs = pd.read_sql_query("SELECT * FROM password_requests WHERE status='Pending'", conn)
 
     total_collected = payments_df["amount"].sum() if not payments_df.empty else 0
     total_expenses = expenses_df["amount"].sum() if not expenses_df.empty else 0
+    total_budget = budgets_df["allocated_amount"].sum() if not budgets_df.empty else 0
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric(T["active_students"], len(active_students))
     c2.metric(T["total_collected"], f"{total_collected:,.0f} RWF")
-    c3.metric("Total Recorded Expenses", f"{total_expenses:,.0f} RWF")
+    c3.metric("Total Expenses / Budget", f"{total_expenses:,.0f} / {total_budget:,.0f} RWF")
+    c4.metric("Active Staff & Workers", len(staff_df))
+
+    if role == "Administration":
+        st.divider()
+        st.write("### 🏛️ All School Departments & Portals Overview")
+        dept_c1, dept_c2, dept_c3, dept_c4 = st.columns(4)
+
+        with dept_c1:
+            st.info(f"""
+            **🎓 Academics & Teacher Portal**
+            * Active Classes: **{active_students['grade'].nunique() if not active_students.empty else 0}**
+            * Today's Attendance Logs: **{len(att_today)}**
+            * Pending Password Approvals: **{len(pwd_reqs)}**
+            """)
+        with dept_c2:
+            st.success(f"""
+            **💳 Register & Finance Portal**
+            * Total Fees Paid: **{total_collected:,.0f} RWF**
+            * Total Expenses: **{total_expenses:,.0f} RWF**
+            * Net Balance: **{total_collected - total_expenses:,.0f} RWF**
+            """)
+        with dept_c3:
+            cleaners = len(staff_df[staff_df["role"] == "Cleaner"]) if not staff_df.empty else 0
+            walkers = len(staff_df[staff_df["role"] == "Safe Walker"]) if not staff_df.empty else 0
+            guards = len(staff_df[staff_df["role"] == "Security Guard"]) if not staff_df.empty else 0
+            teachers_cnt = len(staff_df[staff_df["role"] == "Teacher"]) if not staff_df.empty else 0
+            st.warning(f"""
+            **👷 Operations & Support Staff**
+            * Teachers: **{teachers_cnt}** | Cleaners: **{cleaners}**
+            * Safe Walkers: **{walkers}** | Security: **{guards}**
+            * Monthly Payroll: **{staff_df['monthly_salary'].sum() if not staff_df.empty else 0:,.0f} RWF**
+            """)
+        with dept_c4:
+            pending_tasks = len(tasks_df[tasks_df["status"] == "Pending"]) if not tasks_df.empty else 0
+            unanswered_parents = len(msgs_df[msgs_df["reply"].isna() | (msgs_df["reply"] == "")]) if not msgs_df.empty else 0
+            st.error(f"""
+            **📩 Parent & Task Portal**
+            * Parent Requests: **{len(msgs_df)}** ({unanswered_parents} unreplied)
+            * Pending Staff Tasks: **{pending_tasks}**
+            """)
 
     if not active_students.empty:
-        st.write("### Active Students per Grade")
-        st.bar_chart(active_students["grade"].value_counts().sort_index())
-
-# ==================== 2. STUDENTS ====================
-elif menu == T["students"]:
-    st.subheader(f"👥 {T['students']}")
-
-    with st.expander("➕ Register New Student", expanded=False):
-        with st.form("add_student", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            name = col1.text_input("Student Full Name *")
-            grade = col2.selectbox("Grade *", ["P1", "P2", "P3", "P4", "P5", "P6"])
-            parent_name = col1.text_input("Parent / Guardian Full Name *")
-            parent_phone = col2.text_input("Parent Phone Number * (Used to link siblings & Parent Login)")
-            parent_email = col1.text_input("Parent Email")
-            status = col2.selectbox("Status", ["Active", "Inactive"])
-            if st.form_submit_button(T["save"]):
-                if name and grade and parent_phone:
-                    conn = get_conn()
-                    c = conn.cursor()
-                    c.execute('''
-                        INSERT INTO students (student_name, grade, parent_name, parent_phone, parent_email, status, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (name.strip(), grade, parent_name.strip(), parent_phone.strip(), parent_email.strip(), status, datetime.date.today().isoformat()))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"Student {name} registered in {grade}!")
-                else:
-                    st.error("Student Name, Grade, and Parent Phone are required.")
+        st.write("### Active Students per Class Level")
+        st.bar_chart(active_students["grade"].value_counts().reindex(CLASS_LEVELS).dropna())
 
     st.divider()
-    selected_grade = st.selectbox(f"📌 {T['select_grade']}", ["P1", "P2", "P3", "P4", "P5", "P6"])
-    show_inactive = st.checkbox("Include Inactive Students in View", value=False)
-
-    conn = get_conn()
-    if show_inactive:
-        query = "SELECT * FROM students WHERE grade = ? ORDER BY student_name"
-    else:
-        query = "SELECT * FROM students WHERE grade = ? AND status = 'Active' ORDER BY student_name"
-    grade_df = pd.read_sql_query(query, conn, params=(selected_grade,))
+    st.write("### 🏆 Top Performing Teachers (Prize Evaluation Leaderboard)")
+    teachers_df = pd.read_sql_query("SELECT full_name, assigned_class, assigned_subject FROM users WHERE role='Teacher'", conn)
+    grades_all = pd.read_sql_query("SELECT teacher, AVG(score) as avg_score, COUNT(*) as assessments FROM grades GROUP BY teacher", conn)
+    reports_all = pd.read_sql_query("SELECT teacher_name, COUNT(*) as weekly_reports FROM weekly_reports GROUP BY teacher_name", conn)
+    conduct_all = pd.read_sql_query("SELECT person_name, COALESCE(SUM(points_change), 0) as conduct_pts FROM conduct_records WHERE person_type='Staff' GROUP BY person_name", conn)
     conn.close()
 
-    st.write(f"### Students in {selected_grade} ({len(grade_df)})")
-    if not grade_df.empty:
-        st.dataframe(grade_df[['student_id', 'student_name', 'grade', 'parent_name', 'parent_phone', 'status']], use_container_width=True)
-
-        st.write("#### Update Student Status (Active / Inactive)")
-        col_s1, col_s2, col_s3 = st.columns(3)
-        target_student = col_s1.selectbox(
-            "Select Student",
-            grade_df['student_id'].astype(str) + " - " + grade_df['student_name'] + " (" + grade_df['status'] + ")"
-        )
-        new_status = col_s2.selectbox("New Status", ["Active", "Inactive"])
-        if col_s3.button("Update Status"):
-            sid = int(target_student.split(" - "))
-            conn = get_conn()
-            conn.execute("UPDATE students SET status = ? WHERE student_id = ?", (new_status, sid))
-            conn.commit()
-            conn.close()
-            st.success("Status updated! Inactive students are excluded from counts and payments.")
-            st.rerun()
-    else:
-        st.info(f"No students found in {selected_grade}.")
-# ==================== 3. GRADES & INDIVIDUAL PROGRESS ====================
-elif menu == T["grades"]:
-    st.subheader(f"📝 {T['grades']}")
-    conn = get_conn()
-
-    if role == "Parents":
-        students_df = pd.read_sql_query(
-            "SELECT student_id, student_name, grade FROM students WHERE parent_phone = ? AND status = 'Active'",
-            conn, params=(st.session_state.parent_phone,)
-        )
-    else:
-        selected_grade = st.selectbox(f"📌 {T['select_grade']}", ["P1", "P2", "P3", "P4", "P5", "P6"])
-        students_df = pd.read_sql_query(
-            "SELECT student_id, student_name, grade FROM students WHERE grade = ? AND status = 'Active' ORDER BY student_name",
-            conn, params=(selected_grade,)
-        )
-
-    if students_df.empty:
-        st.warning("No active students found for this selection.")
-        conn.close()
-    else:
-        tab1, tab2 = st.tabs(["📈 Individual Student Progress", "➕ Record Marks (Homework, Exercise, Quiz, Exam)"])
-
-        with tab1:
-            student_map = dict(zip(students_df['student_name'] + " (" + students_df['grade'] + ")", students_df['student_id']))
-            chosen_label = st.selectbox("Select Student to View Progress", list(student_map.keys()))
-            chosen_sid = student_map[chosen_label]
-
-            prog_df = pd.read_sql_query("""
-                SELECT subject, assessment_type, score, max_score, term, date, teacher
-                FROM grades WHERE student_id = ? ORDER BY date ASC
-            """, conn, params=(chosen_sid,))
-
-            if prog_df.empty:
-                st.info("No grades recorded yet for this student.")
+    if not teachers_df.empty:
+        perf = teachers_df.merge(grades_all, left_on="full_name", right_on="teacher", how="left")
+        perf = perf.merge(reports_all, left_on="full_name", right_on="teacher_name", how="left")
             else:
-                st.write(f"#### Subject Performance Breakdown: {chosen_label}")
-                pivot_df = prog_df.pivot_table(
-                    index="subject", columns="assessment_type", values="score", aggfunc="mean"
-                ).round(1)
-                st.dataframe(pivot_df, use_container_width=True)
-                st.write("#### Progress Trend Chart")
-                st.bar_chart(pivot_df)
-                with st.expander("View Full Assessment History"):
-                    st.dataframe(prog_df, use_container_width=True)
-
-        with tab2:
-            if role == "Parents":
-                st.info("Parents have view-only access to grades.")
-            else:
-                student_map = dict(zip(students_df['student_name'] + " (" + students_df['grade'] + ")", students_df['student_id']))
-                with st.form("enter_grade_form", clear_on_submit=True):
-                    selected_st = st.selectbox("Student", list(student_map.keys()))
-                    c1, c2, c3 = st.columns(3)
-                    subject = c1.selectbox("Subject", ["English", "Kinyarwanda", "Mathematics", "SET", "SST", "French", "Kiswahili"])
-                    assess_type = c2.selectbox("Assessment Type", ["Homework", "Exercise", "Quiz", "Exam"])
-                    score = c3.number_input("Score (out of 100)", min_value=0.0, max_value=100.0, step=0.5)
-                    c4, c5 = st.columns(2)
-                    term = c4.selectbox("Term", ["Term 1", "Term 2", "Term 3"])
-                    date_val = c5.date_input("Date", datetime.date.today())
-
-                    if st.form_submit_button(T["save"]):
-                        c = conn.cursor()
-                        c.execute('''
-                            INSERT INTO grades (student_id, subject, assessment_type, score, max_score, term, date, teacher)
-                            VALUES (?, ?, ?, ?, 100, ?, ?, ?)
-                        ''', (student_map[selected_st], subject, assess_type, score, term, date_val.isoformat(), st.session_state.user_name))
-                        conn.commit()
-                        st.success(f"Saved {assess_type} score ({score}) for {selected_st} in {subject}.")
-        conn.close()
-
-# ==================== 4. ATTENDANCE ====================
-elif menu == T["attendance"]:
-    st.subheader(f"📅 {T['attendance']}")
-    selected_grade = st.selectbox(f"📌 {T['select_grade']}", ["P1", "P2", "P3", "P4", "P5", "P6"])
-    att_date = st.date_input("Date", datetime.date.today())
-
-    conn = get_conn()
-    grade_students = pd.read_sql_query(
-        "SELECT student_id, student_name FROM students WHERE grade = ? AND status = 'Active' ORDER BY student_name",
-        conn, params=(selected_grade,)
-    )
-
-    if grade_students.empty:
-        st.warning(f"No active students in {selected_grade}.")
-    else:
-        with st.form("attendance_form"):
-            records = []
-            for _, row in grade_students.iterrows():
-                c1, c2, c3 = st.columns(3)
-                c1.write(f"**{row['student_name']}**")
-                st_status = c2.selectbox("Status", ["Present", "Absent", "Late", "Excused"], key=f"att_{row['student_id']}")
-                notes = c3.text_input("Notes", key=f"note_{row['student_id']}")
-                records.append((row['student_id'], att_date.isoformat(), st_status, st.session_state.user_name, notes))
-
-            if st.form_submit_button(T["save"]):
-                c = conn.cursor()
-                c.executemany('''
-                    INSERT INTO attendance (student_id, date, status, teacher, notes)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', records)
-                conn.commit()
-                st.success(f"Attendance saved for {selected_grade} on {att_date}!")
+                st.error("Passwords do not match or are empty.")
     conn.close()
-
-# ==================== 5. PAYMENTS (5,000 RWF/MO DEC 2026 - DEC 2027) ====================
-elif menu == T["payments"]:
-    st.subheader(f"💳 {T['payments']}")
-    st.caption("Monthly Tuition: **5,000 RWF** per Active student (December 2026 – December 2027). Inactive students are excluded.")
-    conn = get_conn()
-
-    if role == "Parents":
-        matched_students = pd.read_sql_query(
-            "SELECT * FROM students WHERE parent_phone = ? AND status = 'Active'",
-            conn, params=(st.session_state.parent_phone,)
-        )
-    else:
-        search_name = st.text_input("🔍 Type Student Name to Find Student & All Siblings with Same Parent:")
-        if search_name.strip():
-            parent_matches = pd.read_sql_query(
-                "SELECT DISTINCT parent_phone, parent_name FROM students WHERE student_name LIKE ? AND status = 'Active'",
-                conn, params=(f"%{search_name.strip()}%",)
-            )
-            if not parent_matches.empty:
-                phones = tuple(parent_matches["parent_phone"].dropna().unique())
-                if len(phones) == 1:
-                    matched_students = pd.read_sql_query(
-                        "SELECT * FROM students WHERE parent_phone = ? AND status = 'Active' ORDER BY grade, student_name",
-                        conn, params=(phones,)
-                    )
-                else:
-                    placeholders = ",".join("?" * len(phones))
-                    matched_students = pd.read_sql_query(
-                        f"SELECT * FROM students WHERE parent_phone IN ({placeholders}) AND status = 'Active' ORDER BY parent_phone, grade",
-                        conn, params=phones
-                    )
-            else:
-                matched_students = pd.DataFrame()
-        else:
-            matched_students = pd.DataFrame()
-
-    if not matched_students.empty:
-        parent_label = matched_students.iloc[0]["parent_name"]
-        parent_ph = matched_students.iloc[0]["parent_phone"]
-        st.success(f"👨‍👩‍👧‍👦 Family Group Found — Parent: **{parent_label}** ({parent_ph}) | Active Children: **{len(matched_students)}**")
-
-        sids = tuple(matched_students["student_id"].tolist())
-        placeholders = ",".join("?" * len(sids))
-        existing_payments = pd.read_sql_query(
-            f"SELECT student_id, month_year, amount FROM payments WHERE student_id IN ({placeholders})",
-            conn, params=sids
-        )
-
-        matrix_rows = []
-        for _, st_row in matched_students.iterrows():
-            row_dict = {"Student": f"{st_row['student_name']} ({st_row['grade']})"}
-            st_pays = existing_payments[existing_payments["student_id"] == st_row["student_id"]]["month_year"].tolist()
-            for m in PAYMENT_MONTHS:
-                row_dict[m] = "✅ 5,000" if m in st_pays else "❌ Unpaid"
-            matrix_rows.append(row_dict)
-
-        st.dataframe(pd.DataFrame(matrix_rows), use_container_width=True)
-
-        if role in ["Administration", "Register Officer"]:
-            st.write("#### Record Monthly Payment (5,000 RWF)")
-            with st.form("record_payment_form"):
-                c1, c2, c3 = st.columns(3)
-                sib_map = dict(zip(matched_students["student_name"] + " (" + matched_students["grade"] + ")", matched_students["student_id"]))
-                pay_student = c1.selectbox("Select Child", list(sib_map.keys()))
-                pay_month = c2.selectbox("Select Month", PAYMENT_MONTHS)
-                pay_date = c3.date_input("Payment Date", datetime.date.today())
-
-                if st.form_submit_button("Confirm 5,000 RWF Payment"):
-                    try:
-                        c = conn.cursor()
-                        c.execute('''
-                            INSERT INTO payments (student_id, month_year, amount, paid_date, recorded_by)
-                            VALUES (?, ?, ?, ?, ?)
-                        ''', (sib_map[pay_student], pay_month, MONTHLY_FEE, pay_date.isoformat(), st.session_state.user_name))
-                        conn.commit()
-                        st.success(f"Recorded 5,000 RWF for {pay_student} ({pay_month}).")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.warning("This month is already marked as paid for this student.")
-
-    if role in ["Administration", "Register Officer"]:
-        st.divider()
-        st.write("### 📊 Payment Revenue Reports (Active Students Only)")
-        
-        st.write("### 📊 Payment Revenue Reports (Active Students Only)")
-        all_active_pays = pd.read_sql_query(
-            "SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.paid_date, p.recorded_by FROM payments p JOIN students s ON p.student_id = s.student_id WHERE s.status = 'Active'",
-            conn
-        )
-
-        if all_active_pays.empty:
-            st.info("No payments recorded yet.")
-        else:
-            all_active_pays["paid_date_dt"] = pd.to_datetime(all_active_pays["paid_date"])
-            all_active_pays["Week"] = all_active_pays["paid_date_dt"].dt.to_period("W").astype(str)
-
-            rep_col1, rep_col2 = st.columns(2)
-            with rep_col1:
-                st.write("#### Revenue Per Week")
-                weekly_rep = all_active_pays.groupby("Week")["amount"].sum().reset_index()
-                weekly_rep.columns = ["Week", "Total Paid (RWF)"]
-                st.dataframe(weekly_rep, use_container_width=True)
-
-            with rep_col2:
-                st.write("#### Revenue Per Fee Month")
-                monthly_rep = all_active_pays.groupby("month_year")["amount"].sum().reset_index()
-                monthly_rep.columns = ["Fee Month", "Total Paid (RWF)"]
-                st.dataframe(monthly_rep, use_container_width=True)
-    conn.close()
-
-# ==================== 6. MONTHLY BUDGET & EXPENSES ====================
-elif menu == T["finance"]:
-    st.subheader(f"💰 {T['finance']}")
-    conn = get_conn()
-    selected_fin_month = st.selectbox("Select Month", PAYMENT_MONTHS)
-
-    col_b, col_e = st.columns(2)
-    with col_b:
-        st.write("#### Set Manual Monthly Budget")
-        with st.form("budget_form"):
-            budget_amt = st.number_input("Monthly Budget Amount (RWF)", min_value=0.0, step=10000.0)
-            budget_note = st.text_input("Budget Notes")
-            if st.form_submit_button("Save Monthly Budget"):
-                c = conn.cursor()
-                c.execute(
-                    "INSERT INTO monthly_budgets (month_year, allocated_amount, notes, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(month_year) DO UPDATE SET allocated_amount=excluded.allocated_amount, notes=excluded.notes, updated_by=excluded.updated_by",
-                    (selected_fin_month, budget_amt, budget_note, st.session_state.user_name)
-                )
-                conn.commit()
-                st.success(f"Budget for {selected_fin_month} saved: {budget_amt:,.0f} RWF")
-
-    with col_e:
-        st.write("#### Record Monthly Expense")
-        with st.form("expense_form", clear_on_submit=True):
-            exp_cat = st.selectbox("Category", ["Salaries", "Utilities", "Food / Supplies", "Maintenance", "Other"])
-            exp_desc = st.text_input("Description")
-            exp_amt = st.number_input("Expense Amount (RWF)", min_value=0.0, step=1000.0)
-            exp_date = st.date_input("Date", datetime.date.today())
-            if st.form_submit_button("Record Expense"):
-                c = conn.cursor()
-                c.execute(
-                    "INSERT INTO expenses (month_year, category, description, amount, date, recorded_by) VALUES (?, ?, ?, ?, ?, ?)",
-                    (selected_fin_month, exp_cat, exp_desc, exp_amt, exp_date.isoformat(), st.session_state.user_name)
-                )
-                conn.commit()
-                st.success("Expense recorded!")
-
-    b_df = pd.read_sql_query("SELECT * FROM monthly_budgets WHERE month_year = ?", conn, params=(selected_fin_month,))
-    e_df = pd.read_sql_query("SELECT * FROM expenses WHERE month_year = ?", conn, params=(selected_fin_month,))
-    conn.close()
-
-    allocated = b_df.iloc["allocated_amount"] if not b_df.empty else 0.0
-    spent = e_df["amount"].sum() if not e_df.empty else 0.0
-    remaining = allocated - spent
-
-    m1, m2, m3 = st.columns(3)
-    m1.metricb_df.iloc[0]["allocated_amount"]
-    m2.metric("Total Expenses", f"{spent:,.0f} RWF")
-    m3.metric("Remaining Balance", f"{remaining:,.0f} RWF")
-
-    if not e_df.empty:
-        st.dataframe(e_df[['date', 'category', 'description', 'amount', 'recorded_by']], use_container_width=True)
-
-# ==================== 7. TEACHER WEEKLY REPORTS ====================
-elif menu == T["reports"]:
-    st.subheader(f"📋 {T['reports']}")
-    conn = get_conn()
-
-    with st.form("weekly_report_form", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        rep_grade = c1.selectbox("Grade Taught", ["P1", "P2", "P3", "P4", "P5", "P6"])
-        week_end = c2.date_input("Week Ending Date", datetime.date.today())
-        topics = st.text_area("Topics & Lessons Covered This Week")
-        challenges = st.text_area("Student Challenges / Needs")
-        next_plan = st.text_area("Plan for Next Week")
-
-        if st.form_submit_button("Submit Weekly Report"):
-            c = conn.cursor()
-            c.execute(
-                "INSERT INTO weekly_reports (teacher_name, grade, week_ending, topics_covered, challenges, next_week_plan, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (st.session_state.user_name, rep_grade, week_end.isoformat(), topics, challenges, next_plan, datetime.datetime.now().isoformat())
-            )
-            conn.commit()
-            st.success("Weekly report submitted!")
-
-    st.write("### Submitted Weekly Reports")
-    rep_df = pd.read_sql_query("SELECT * FROM weekly_reports ORDER BY report_id DESC", conn)
-    conn.close()
-    if not rep_df.empty:
-        st.dataframe(rep_df, use_container_width=True)
-
-# ==================== 8. STAFF & WORKERS PORTAL ====================
-elif menu == T["staff"]:
-    st.subheader(f"👷 {T['staff']}")
-    conn = get_conn()
-
-    with st.expander("➕ Add Staff / Worker", expanded=True):
-        with st.form("add_staff_form", clear_on_submit=True):
-            c1, c2 = st.columns(2)
-            s_name = c1.text_input("Full Name *")
-            s_role = c2.selectbox("Worker Role *", ["Teacher", "Cleaner", "Safe Walker", "Security Guard", "Administration"])
-            s_phone = c1.text_input("Phone Number")
-            s_grade = c2.text_input("Assigned Grade / Post (e.g., P1, Main Gate)")
-            s_salary = c1.number_input("Monthly Salary (RWF)", min_value=0.0, step=5000.0)
-            s_status = c2.selectbox("Status", ["Active", "Inactive"])
-
-            if st.form_submit_button("Save Worker"):
-                if s_name:
-                    c = conn.cursor()
-                    c.execute(
-                        "INSERT INTO staff (full_name, role, phone, assigned_grade, monthly_salary, status, hired_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (s_name, s_role, s_phone, s_grade, s_salary, s_status, datetime.date.today().isoformat())
-                    )
-                    conn.commit()
-                    st.success(f"{s_name} ({s_role}) added!")
-
-    staff_df = pd.read_sql_query("SELECT * FROM staff ORDER BY role, full_name", conn)
-    conn.close()
-    if not staff_df.empty:
-        st.dataframe(staff_df, use_container_width=True)
-
-# ==================== 9. COMMUNICATION & PARENT PORTAL ====================
-elif menu == T["chat"]:
-    st.subheader(f"💬 {T['chat']}")
-    conn = get_conn()
-
-    if role == "Parents":
-        st.write("### Send Feedback or Request Student Permission")
-        my_kids = pd.read_sql_query(
-            "SELECT student_name, grade FROM students WHERE parent_phone = ? AND status = 'Active'",
-            conn, params=(st.session_state.parent_phone,)
-        )
-        kid_list = (my_kids["student_name"] + " (" + my_kids["grade"] + ")").tolist() if not my_kids.empty else ["General"]
-
-        with st.form("parent_msg_form", clear_on_submit=True):
-            req_type = st.selectbox("Message Type", ["Permission Request (Uruhushya)", "Parent Feedback (Igitekerezo)", "General Question"])
-            kid_sel = st.selectbox("Regarding Student", kid_list)
-            msg_body = st.text_area("Write your message or permission details...")
-            if st.form_submit_button("Send to School"):
-                if msg_body.strip():
-                    c = conn.cursor()
-                    c.execute(
-                        "INSERT INTO messages (sender_role, sender_name, parent_phone, student_name, msg_type, content, created_at) VALUES ('Parent', ?, ?, ?, ?, ?, ?)",
-                        (st.session_state.user_name, st.session_state.parent_phone, kid_sel, req_type, msg_body.strip(), datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
-                    )
-                    conn.commit()
-                    st.success("Your message has been sent to the school administration!")
-
-        st.write("### Your Previous Messages & School Replies")
-        my_msgs = pd.read_sql_query(
-            "SELECT created_at, student_name, msg_type, content, reply FROM messages WHERE parent_phone = ? ORDER BY msg_id DESC",
-            conn, params=(st.session_state.parent_phone,)
-        )
-        st.dataframe(my_msgs, use_container_width=True)
-
-    else:
-        tab_staff_chat, tab_parent_req = st.tabs(["🏫 Staff Communication Board", "📩 Parent Permissions & Feedback"])
-
-        with tab_staff_chat:
-            with st.form("staff_chat_form", clear_on_submit=True):
-                staff_msg = st.text_input("Post a message or announcement to staff:")
-                if st.form_submit_button("Post Message"):
-                    if staff_msg.strip():
-                        c = conn.cursor()
-                        c.execute(
-                            "INSERT INTO messages (sender_role, sender_name, msg_type, content, created_at) VALUES (?, ?, 'Staff Chat', ?, ?)",
-                            (role, st.session_state.user_name, staff_msg.strip(), datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
-                        )
-                        conn.commit()
-                        st.rerun()
-            chat_df = pd.read_sql_query(
-                "SELECT created_at, sender_role, sender_name, content FROM messages WHERE msg_type = 'Staff Chat' ORDER BY msg_id DESC LIMIT 30",
-                conn
-            )
-            for _, row in chat_df.iterrows():
-                st.markdown(f"**[{row['created_at']}] {row['sender_name']} ({row['sender_role']}):** {row['content']}")
-
-        with tab_parent_req:
-            p_reqs = pd.read_sql_query(
-                "SELECT msg_id, created_at, sender_name, parent_phone, student_name, msg_type, content, reply FROM messages WHERE sender_role = 'Parent' ORDER BY msg_id DESC",
-                conn
-            )
-            st.dataframe(p_reqs, use_container_width=True)
-
-            if not p_reqs.empty and role in ["Administration", "Register Officer"]:
-                with st.form("reply_parent_form"):
-                    sel_msg_id = st.selectbox("Select Message ID to Reply", p_reqs["msg_id"].tolist())
-                    reply_text = st.text_input("Official Reply / Permission Approval")
-                    if st.form_submit_button("Send Reply"):
-                        c = conn.cursor()
-                        c.execute("UPDATE messages SET reply = ? WHERE msg_id = ?", (reply_text, sel_msg_id))
-                        conn.commit()
-                        st.success("Reply sent to parent!")
-                        st.rerun()
-
-    conn.close()
-
