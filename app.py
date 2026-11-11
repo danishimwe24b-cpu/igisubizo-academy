@@ -2,18 +2,131 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import datetime
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-from reportlab.lib.units import cm
-from reportlab.lib.enums import TA_CENTER
 import io
 
-# ==================== DATABASE ====================
+# ==================== PAGE CONFIG ====================
+st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
+
+# ==================== TRANSLATIONS (4 LANGUAGES) ====================
+TRANSLATIONS = {
+    "English": {
+        "title": "IGISUBIZO ACADEMY",
+        "subtitle": "School Management, Finance & Communication System",
+        "login_header": "System Login Portal",
+        "select_role": "Select Portal Role",
+        "username": "Username / Parent Phone",
+        "password": "Password / PIN",
+        "login_btn": "Login",
+        "logout_btn": "Logout",
+        "menu": "Navigation Menu",
+        "dashboard": "Dashboard",
+        "students": "Students (By Grade)",
+        "grades": "Grades & Progress",
+        "attendance": "Attendance",
+        "payments": "Payments (Dec 2026 - Dec 2027)",
+        "finance": "Monthly Budget & Expenses",
+        "reports": "Teacher Weekly Reports",
+        "staff": "Staff & Workers",
+        "chat": "Communication & Parent Requests",
+        "active_students": "Active Students",
+        "total_collected": "Total Fees Collected (RWF)",
+        "select_grade": "Select Grade Level First",
+        "status": "Status",
+        "save": "Save",
+    },
+    "Kinyarwanda": {
+        "title": "IGISUBIZO ACADEMY",
+        "subtitle": "Sisitemu y'Ishuri, Imari n'Itumanaho",
+        "login_header": "Kwinjira muri Sisitemu",
+        "select_role": "Hitamo Urwego",
+        "username": "Izina / Telefoni y'Umubyeyi",
+        "password": "Ijambo ry'ibanga",
+        "login_btn": "Injira",
+        "logout_btn": "Sohoka",
+        "menu": "Ibice bya Sisitemu",
+        "dashboard": "Incamake (Dashboard)",
+        "students": "Abanyeshuri (Ku Ishuri)",
+        "grades": "Amanota n'Iterambere",
+        "attendance": "Kwitabira Ishuri",
+        "payments": "Ubwishyu (Ukuboza 2026 - Ukuboza 2027)",
+        "finance": "Ingengo y'Imari n'Ibyakoreshejwe",
+        "reports": "Raporo y'Icyumweru y'Umwarimu",
+        "staff": "Abakozi Bose b'Ikigo",
+        "chat": "Itumanaho n'Impushya z'Ababyeyi",
+        "active_students": "Abanyeshuri Biga (Active)",
+        "total_collected": "Amafaranga Yose Yishyuwe (RWF)",
+        "select_grade": "Banza Uhitemo Ishuri (Grade)",
+        "status": "Imimerere",
+        "save": "Bika Amakuru",
+    },
+    "French": {
+        "title": "IGISUBIZO ACADEMY",
+        "subtitle": "Système de Gestion Scolaire, Finance et Communication",
+        "login_header": "Portail de Connexion",
+        "select_role": "Choisir le Rôle",
+        "username": "Nom d'utilisateur / Téléphone Parent",
+        "password": "Mot de passe",
+        "login_btn": "Se connecter",
+        "logout_btn": "Déconnexion",
+        "menu": "Menu Principal",
+        "dashboard": "Tableau de Bord",
+        "students": "Élèves (Par Classe)",
+        "grades": "Notes et Progrès",
+        "attendance": "Présences",
+        "payments": "Paiements (Déc 2026 - Déc 2027)",
+        "finance": "Budget Mensuel et Dépenses",
+        "reports": "Rapport Hebdomadaire Enseignant",
+        "staff": "Personnel et Employés",
+        "chat": "Communication et Demandes Parents",
+        "active_students": "Élèves Actifs",
+        "total_collected": "Total Frais Perçus (RWF)",
+        "select_grade": "Choisissez d'abord la Classe",
+        "status": "Statut",
+        "save": "Enregistrer",
+    },
+    "Kiswahili": {
+        "title": "IGISUBIZO ACADEMY",
+        "subtitle": "Mfumo wa Usimamizi wa Shule, Fedha na Mawasiliano",
+        "login_header": "Sehemu ya Kuingia",
+        "select_role": "Chagua Nafasi Yako",
+        "username": "Jina la Mtumiaji / Simu ya Mzazi",
+        "password": "Nenosiri",
+        "login_btn": "Ingia",
+        "logout_btn": "Toka",
+        "menu": "Menyu Kuu",
+        "dashboard": "Dashibodi",
+        "students": "Wanafunzi (Kwa Darasa)",
+        "grades": "Alama na Maendeleo",
+        "attendance": "Mahudhurio",
+        "payments": "Malipo (Des 2026 - Des 2027)",
+        "finance": "Bajeti ya Mwezi na Matumizi",
+        "reports": "Ripoti ya Wiki ya Mwalimu",
+        "staff": "Wafanyakazi Wote",
+        "chat": "Mawasiliano na Maombi ya Wazazi",
+        "active_students": "Wanafunzi Wanaosoma (Active)",
+        "total_collected": "Jumla ya Ada Zilizokusanywa (RWF)",
+        "select_grade": "Chagua Darasa Kwanza",
+        "status": "Hali",
+        "save": "Hifadhi",
+    }
+}
+
+# Payment months required: Dec 2026 through Dec 2027 (5,000 RWF each)
+PAYMENT_MONTHS = [
+    "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05",
+    "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12"
+]
+MONTHLY_FEE = 5000
+
+# ==================== DATABASE SETUP & MIGRATION ====================
+def get_conn():
+    return sqlite3.connect('igisubizo_academy.db')
+
 def init_db():
-    conn = sqlite3.connect('igisubizo_academy.db')
+    conn = get_conn()
     c = conn.cursor()
+
+    # Students table
     c.execute('''
         CREATE TABLE IF NOT EXISTS students (
             student_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,11 +139,14 @@ def init_db():
             created_at TEXT
         )
     ''')
+
+    # Grades table (with assessment_type for Homework, Exercise, Quiz, Exam)
     c.execute('''
         CREATE TABLE IF NOT EXISTS grades (
             grade_id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_id INTEGER,
             subject TEXT,
+            assessment_type TEXT DEFAULT 'Exam',
             score REAL,
             max_score REAL DEFAULT 100,
             term TEXT,
@@ -39,6 +155,13 @@ def init_db():
             FOREIGN KEY(student_id) REFERENCES students(student_id)
         )
     ''')
+    # Safely add assessment_type if upgrading from older DB
+    try:
+        c.execute("ALTER TABLE grades ADD COLUMN assessment_type TEXT DEFAULT 'Exam'")
+    except sqlite3.OperationalError:
+        pass
+
+    # Attendance table
     c.execute('''
         CREATE TABLE IF NOT EXISTS attendance (
             attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,322 +173,119 @@ def init_db():
             FOREIGN KEY(student_id) REFERENCES students(student_id)
         )
     ''')
+
+    # Payments table (5000 RWF/month, Dec 2026 - Dec 2027)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS payments (
+            payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER,
+            month_year TEXT,
+            amount REAL DEFAULT 5000,
+            paid_date TEXT,
+            recorded_by TEXT,
+            UNIQUE(student_id, month_year),
+            FOREIGN KEY(student_id) REFERENCES students(student_id)
+        )
+    ''')
+
+    # Monthly Budget table (manual entry)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS monthly_budgets (
+            budget_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_year TEXT UNIQUE,
+            allocated_amount REAL,
+            notes TEXT,
+            updated_by TEXT
+        )
+    ''')
+
+    # Monthly Expenses table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS expenses (
+            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_year TEXT,
+            category TEXT,
+            description TEXT,
+            amount REAL,
+            date TEXT,
+            recorded_by TEXT
+        )
+    ''')
+
+    # Weekly Teacher Reports
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS weekly_reports (
+            report_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            teacher_name TEXT,
+            grade TEXT,
+            week_ending TEXT,
+            topics_covered TEXT,
+            challenges TEXT,
+            next_week_plan TEXT,
+            submitted_at TEXT
+        )
+    ''')
+
+    # Staff & Workers (Teachers, Cleaners, Safe Walkers, Security Guards)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS staff (
+            staff_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            phone TEXT,
+            assigned_grade TEXT,
+            monthly_salary REAL,
+            status TEXT DEFAULT 'Active',
+            hired_date TEXT
+        )
+    ''')
+
+    # Communication & Parent Requests/Feedback
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            msg_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_role TEXT,
+            sender_name TEXT,
+            parent_phone TEXT,
+            student_name TEXT,
+            msg_type TEXT,
+            content TEXT,
+            reply TEXT,
+            created_at TEXT
+        )
+    ''')
+
+    # System Users for Login Portals
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT,
+            role TEXT,
+            full_name TEXT
+        )
+    ''')
+
+    # Seed default staff logins if empty
+    c.execute("SELECT COUNT(*) FROM users")
+    if c.fetchone()[0] == 0:
+        default_users = [
+            ("admin", "admin123", "Administration", "Head Administrator"),
+            ("register", "reg123", "Register Officer", "School Registrar"),
+            ("teacher", "teach123", "Teacher", "Class Teacher")
+        ]
+        c.executemany("INSERT INTO users (username, password, role, full_name) VALUES (?, ?, ?, ?)", default_users)
+
     conn.commit()
     conn.close()
 
 init_db()
 
-def get_conn():
-    return sqlite3.connect('igisubizo_academy.db')
-
-# ==================== PAGE CONFIG ====================
-st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
-
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #0B6E4F 0%, #0A3D62 100%);
-        padding: 1.5rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin-bottom: 1.5rem;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<div class="main-header">
-    <h1>🎓 IGISUBIZO ACADEMY</h1>
-    <p>Student Information & Report Card System</p>
-</div>
-""", unsafe_allow_html=True)
-
-# ==================== SIDEBAR ====================
-menu = st.sidebar.radio("Menu", [
-    "Dashboard",
-    "Students",
-    "Enter Grades",
-    "Attendance",
-    "Generate Report Card"
-])
-
-# ==================== DASHBOARD ====================
-if menu == "Dashboard":
-    st.subheader("📊 Dashboard")
-    conn = get_conn()
-    students_df = pd.read_sql_query("SELECT * FROM students WHERE status='Active'", conn)
-    grades_df = pd.read_sql_query("SELECT * FROM grades", conn)
-    attendance_df = pd.read_sql_query("SELECT * FROM attendance", conn)
-    conn.close()
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Active Students", len(students_df))
-    col2.metric("Grades Recorded", len(grades_df))
-    col3.metric("Attendance Records", len(attendance_df))
-
-    if not students_df.empty:
-        st.write("### Students per Grade")
-        st.bar_chart(students_df['grade'].value_counts().sort_index())
-        st.write("### Recent Students")
-        st.dataframe(students_df[['student_name', 'grade', 'parent_name', 'parent_phone']].tail(10), use_container_width=True)
-    else:
-        st.info("No students yet. Go to Students menu to add.")
-
-# ==================== STUDENTS ====================
-elif menu == "Students":
-    st.subheader("👥 Student Information")
-
-    with st.expander("➕ Register New Student", expanded=True):
-        with st.form("add_student", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            name = col1.text_input("Student Full Name *")
-            grade = col2.selectbox("Grade *", ["P1", "P2", "P3", "P4", "P5", "P6"])
-            parent_name = col1.text_input("Parent / Guardian Name")
-            parent_phone = col2.text_input("Parent Phone Number")
-            parent_email = col1.text_input("Parent Email")
-            submitted = st.form_submit_button("Save Student")
-
-            if submitted:
-                if name and grade:
-                    conn = get_conn()
-                    c = conn.cursor()
-                    c.execute('''
-                        INSERT INTO students (student_name, grade, parent_name, parent_phone, parent_email, status, created_at)
-                        VALUES (?, ?, ?, ?, ?, 'Active', ?)
-                    ''', (name, grade, parent_name, parent_phone, parent_email, datetime.date.today().isoformat()))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"Student {name} registered successfully!")
-                else:
-                    st.error("Student Name and Grade are required.")
-
-    st.write("### All Students")
-    conn = get_conn()
-    students_df = pd.read_sql_query("SELECT * FROM students ORDER BY grade, student_name", conn)
-    conn.close()
-    if not students_df.empty:
-        st.dataframe(students_df[['student_id', 'student_name', 'grade', 'parent_name', 'parent_phone', 'parent_email', 'status']], use_container_width=True)
-    else:
-        st.warning("No students found.")
-
-# ==================== ENTER GRADES ====================
-elif menu == "Enter Grades":
-    st.subheader("📝 Enter Grades")
-    conn = get_conn()
-    students_df = pd.read_sql_query("SELECT student_id, student_name, grade FROM students WHERE status='Active' ORDER BY grade, student_name", conn)
-    conn.close()
-
-    if students_df.empty:
-        st.error("Please register students first.")
-    else:
-        students_df['display'] = students_df['student_name'] + " (" + students_df['grade'] + ")"
-        student_dict = dict(zip(students_df['display'], students_df['student_id']))
-
-        with st.form("enter_grade", clear_on_submit=True):
-            selected = st.selectbox("Select Student", list(student_dict.keys()))
-            col1, col2 = st.columns(2)
-            subject = col1.selectbox("Subject", ["English", "Kinyarwanda", "Mathematics", "SET", "SST"])
-            score = col2.number_input("Score", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
-            term = col1.selectbox("Term", ["Term 1", "Term 2", "Term 3"])
-            teacher = col2.text_input("Teacher Name")
-            date = st.date_input("Date", datetime.date.today())
-
-            if st.form_submit_button("Save Grade"):
-                sid = student_dict[selected]
-                conn = get_conn()
-                c = conn.cursor()
-                c.execute('''
-                    INSERT INTO grades (student_id, subject, score, max_score, term, date, teacher)
-                    VALUES (?, ?, ?, 100, ?, ?, ?)
-                ''', (sid, subject, score, term, date.isoformat(), teacher))
-                conn.commit()
-                conn.close()
-                st.success(f"Grade saved for {selected} — {subject}: {score}")
-
-        st.write("### Recent Grades")
-        conn = get_conn()
-        recent = pd.read_sql_query('''
-            SELECT g.date, s.student_name, s.grade, g.subject, g.score, g.term, g.teacher
-            FROM grades g JOIN students s ON g.student_id = s.student_id
-            ORDER BY g.grade_id DESC LIMIT 15
-        ''', conn)
-        conn.close()
-        if not recent.empty:
-            st.dataframe(recent, use_container_width=True)
-
-# ==================== ATTENDANCE ====================
-elif menu == "Attendance":
-    st.subheader("📅 Attendance")
-    conn = get_conn()
-    students_df = pd.read_sql_query("SELECT student_id, student_name, grade FROM students WHERE status='Active' ORDER BY grade, student_name", conn)
-    conn.close()
-
-    if students_df.empty:
-        st.error("Please register students first.")
-    else:
-        selected_grade = st.selectbox("Select Grade", ["P1", "P2", "P3", "P4", "P5", "P6"])
-        date = st.date_input("Date", datetime.date.today())
-        teacher = st.text_input("Teacher Name")
-
-        grade_students = students_df[students_df['grade'] == selected_grade]
-
-        if grade_students.empty:
-            st.warning(f"No students in {selected_grade}")
-        else:
-            st.write(f"### Students in {selected_grade}")
-            status_options = ["Present", "Absent", "Late", "Permission"]
-            attendance_data = []
-
-            for _, row in grade_students.iterrows():
-                col1, col2 = st.columns([3, 2])
-                col1.write(f"**{row['student_name']}**")
-                status = col2.selectbox("Status", status_options, key=f"att_{row['student_id']}", label_visibility="collapsed")
-                attendance_data.append({"student_id": row['student_id'], "status": status})
-
-            if st.button("Save Attendance"):
-                conn = get_conn()
-                c = conn.cursor()
-                for item in attendance_data:
-                    c.execute('''
-                        INSERT INTO attendance (student_id, date, status, teacher, notes)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (item['student_id'], date.isoformat(), item['status'], teacher, ""))
-                conn.commit()
-                conn.close()
-                st.success(f"Attendance saved for {selected_grade}")
-
-# ==================== GENERATE REPORT CARD ====================
-elif menu == "Generate Report Card":
-    st.subheader("📄 Generate Report Card")
-    conn = get_conn()
-    students_df = pd.read_sql_query("SELECT student_id, student_name, grade, parent_name, parent_phone FROM students WHERE status='Active' ORDER BY grade, student_name", conn)
-    conn.close()
-
-    if students_df.empty:
-        st.error("No students available.")
-    else:
-        students_df['display'] = students_df['student_name'] + " (" + students_df['grade'] + ")"
-        student_dict = dict(zip(students_df['display'], students_df['student_id']))
-
-        selected = st.selectbox("Select Student", list(student_dict.keys()))
-        term_filter = st.selectbox("Term", ["All Terms", "Term 1", "Term 2", "Term 3"])
-
-        if st.button("Generate & Download Report Card", type="primary"):
-            sid = student_dict[selected]
-            conn = get_conn()
-            student = pd.read_sql_query(f"SELECT * FROM students WHERE student_id = {sid}", conn).iloc[0]
-
-            if term_filter == "All Terms":
-                grades = pd.read_sql_query(f"SELECT * FROM grades WHERE student_id = {sid}", conn)
-            else:
-                grades = pd.read_sql_query(f"SELECT * FROM grades WHERE student_id = {sid} AND term = '{term_filter}'", conn)
-
-            # Position in class
-            same_grade = pd.read_sql_query(f"SELECT student_id FROM students WHERE grade = '{student['grade']}' AND status='Active'", conn)
-            averages = []
-            for other_id in same_grade['student_id']:
-                other_grades = pd.read_sql_query(f"SELECT score FROM grades WHERE student_id = {other_id}", conn)
-                if not other_grades.empty:
-                    averages.append({"student_id": other_id, "average": other_grades['score'].mean()})
-            conn.close()
-
-            position = "N/A"
-            total_in_class = len(same_grade)
-            if averages:
-                avg_df = pd.DataFrame(averages).sort_values("average", ascending=False).reset_index(drop=True)
-                for idx, row in avg_df.iterrows():
-                    if row['student_id'] == sid:
-                        position = f"{idx + 1} out of {total_in_class}"
-                        break
-
-            # Create PDF
-            buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
-            styles = getSampleStyleSheet()
-
-            title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=18, textColor=colors.HexColor("#0B6E4F"), alignment=TA_CENTER, spaceAfter=6, fontName="Helvetica-Bold")
-            subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'], fontSize=11, textColor=colors.HexColor("#0A3D62"), alignment=TA_CENTER, spaceAfter=12)
-            normal = ParagraphStyle('NormalCustom', parent=styles['Normal'], fontSize=10, leading=14)
-            header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontSize=10, fontName="Helvetica-Bold", textColor=colors.white)
-
-            story = []
-            story.append(Paragraph("IGISUBIZO ACADEMY", title_style))
-            story.append(Paragraph("Student Academic Report Card", subtitle_style))
-            story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#0B6E4F"), spaceAfter=12))
-
-            info_text = f"""
-            <b>Student Name:</b> {student['student_name']}<br/>
-            <b>Grade / Level:</b> {student['grade']}<br/>
-            <b>Parent / Guardian:</b> {student['parent_name'] or '—'}<br/>
-            <b>Parent Phone:</b> {student['parent_phone'] or '—'}<br/>
-            <b>Report Date:</b> {datetime.date.today().strftime('%d %B %Y')}<br/>
-            <b>Position in Class:</b> {position}
-            """
-            story.append(Paragraph(info_text, normal))
-            story.append(Spacer(1, 15))
-            story.append(Paragraph("<b>Subject Results</b>", styles['Heading3']))
-            story.append(Spacer(1, 6))
-
-            subjects = ["English", "Kinyarwanda", "Mathematics", "SET", "SST"]
-            table_data = [[Paragraph("Subject", header_style), Paragraph("Score", header_style),
-                           Paragraph("Max", header_style), Paragraph("Term", header_style), Paragraph("Teacher", header_style)]]
-
-            total_score = 0
-            count = 0
-
-            if not grades.empty:
-                for subj in subjects:
-                    subj_grades = grades[grades['subject'] == subj]
-                    if not subj_grades.empty:
-                        avg_score = subj_grades['score'].mean()
-                        latest = subj_grades.iloc[-1]
-                        table_data.append([
-                            Paragraph(subj, normal),
-                            Paragraph(f"{avg_score:.1f}", normal),
-                            Paragraph("100", normal),
-                            Paragraph(str(latest['term']), normal),
-                            Paragraph(str(latest['teacher'] or "—"), normal)
-                        ])
-                        total_score += avg_score
-                        count += 1
-                    else:
-                        table_data.append([Paragraph(subj, normal), Paragraph("—", normal), Paragraph("100", normal), Paragraph("—", normal), Paragraph("—", normal)])
-            else:
-                for subj in subjects:
-                    table_data.append([Paragraph(subj, normal), Paragraph("—", normal), Paragraph("100", normal), Paragraph("—", normal), Paragraph("—", normal)])
-
-            t = Table(table_data, colWidths=[3.5*cm, 2.5*cm, 2*cm, 2.5*cm, 4*cm])
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0B6E4F")),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
-                ('TOPPADDING', (0, 0), (-1, -1), 5),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#F0F7F4")),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#0A3D62")),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ]))
-            story.append(t)
-            story.append(Spacer(1, 15))
-
-            average = (total_score / count) if count > 0 else 0
-            summary = f"""
-            <b>Average Score:</b> {average:.1f} / 100<br/>
-            <b>Position in Class:</b> {position}<br/>
-            <b>Subjects Recorded:</b> {count}
-            """
-            story.append(Paragraph(summary, normal))
-            story.append(Spacer(1, 20))
-            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#0A3D62"), spaceAfter=10))
-            story.append(Paragraph("<i>Generated by Igisubizo Academy Student System.</i>", ParagraphStyle('Footer', parent=normal, fontSize=8, textColor=colors.grey)))
-
-            doc.build(story)
-            buffer.seek(0)
-
-            file_name = f"ReportCard_{student['student_name'].replace(' ', '_')}_{student['grade']}.pdf"
-            st.download_button("⬇️ Download Report Card (PDF)", data=buffer, file_name=file_name, mime="application/pdf")
-            st.success("Report Card ready! Click the download button above.")
+# ==================== SESSION STATE & LANGUAGE ====================
+if "lang" not in st.session_state:
+    st.session_state.lang = "English"
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.role = None
+    st.session_state.user_name = None
+    st.session_state.parent_phone = None
