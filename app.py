@@ -842,6 +842,30 @@ elif menu == T["chat"]:
                         )
                         conn.commit()
                         st.rerun()
-
             chat_df = pd.read_sql_query(
+                "SELECT created_at, sender_role, sender_name, content FROM messages WHERE msg_type = 'Staff Chat' ORDER BY msg_id DESC LIMIT 30",
+                conn
+            )
+            for _, row in chat_df.iterrows():
+                st.markdown(f"**[{row['created_at']}] {row['sender_name']} ({row['sender_role']}):** {row['content']}")
+
+        with tab_parent_req:
+            p_reqs = pd.read_sql_query(
+                "SELECT msg_id, created_at, sender_name, parent_phone, student_name, msg_type, content, reply FROM messages WHERE sender_role = 'Parent' ORDER BY msg_id DESC",
+                conn
+            )
+            st.dataframe(p_reqs, use_container_width=True)
+
+            if not p_reqs.empty and role in ["Administration", "Register Officer"]:
+                with st.form("reply_parent_form"):
+                    sel_msg_id = st.selectbox("Select Message ID to Reply", p_reqs["msg_id"].tolist())
+                    reply_text = st.text_input("Official Reply / Permission Approval")
+                    if st.form_submit_button("Send Reply"):
+                        c = conn.cursor()
+                        c.execute("UPDATE messages SET reply = ? WHERE msg_id = ?", (reply_text, sel_msg_id))
+                        conn.commit()
+                        st.success("Reply sent to parent!")
+                        st.rerun()
+
+    conn.close()
 
