@@ -111,7 +111,6 @@ TRANSLATIONS = {
     }
 }
 
-# Payment months required: Dec 2026 through Dec 2027 (5,000 RWF each)
 PAYMENT_MONTHS = [
     "2026-12", "2027-01", "2027-02", "2027-03", "2027-04", "2027-05",
     "2027-06", "2027-07", "2027-08", "2027-09", "2027-10", "2027-11", "2027-12"
@@ -126,7 +125,6 @@ def init_db():
     conn = get_conn()
     c = conn.cursor()
 
-    # Students table
     c.execute('''
         CREATE TABLE IF NOT EXISTS students (
             student_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,7 +138,6 @@ def init_db():
         )
     ''')
 
-    # Grades table (with assessment_type for Homework, Exercise, Quiz, Exam)
     c.execute('''
         CREATE TABLE IF NOT EXISTS grades (
             grade_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -155,13 +152,11 @@ def init_db():
             FOREIGN KEY(student_id) REFERENCES students(student_id)
         )
     ''')
-    # Safely add assessment_type if upgrading from older DB
     try:
         c.execute("ALTER TABLE grades ADD COLUMN assessment_type TEXT DEFAULT 'Exam'")
     except sqlite3.OperationalError:
         pass
 
-    # Attendance table
     c.execute('''
         CREATE TABLE IF NOT EXISTS attendance (
             attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,7 +169,6 @@ def init_db():
         )
     ''')
 
-    # Payments table (5000 RWF/month, Dec 2026 - Dec 2027)
     c.execute('''
         CREATE TABLE IF NOT EXISTS payments (
             payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -188,7 +182,6 @@ def init_db():
         )
     ''')
 
-    # Monthly Budget table (manual entry)
     c.execute('''
         CREATE TABLE IF NOT EXISTS monthly_budgets (
             budget_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -199,7 +192,6 @@ def init_db():
         )
     ''')
 
-    # Monthly Expenses table
     c.execute('''
         CREATE TABLE IF NOT EXISTS expenses (
             expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -212,7 +204,6 @@ def init_db():
         )
     ''')
 
-    # Weekly Teacher Reports
     c.execute('''
         CREATE TABLE IF NOT EXISTS weekly_reports (
             report_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,7 +217,6 @@ def init_db():
         )
     ''')
 
-    # Staff & Workers (Teachers, Cleaners, Safe Walkers, Security Guards)
     c.execute('''
         CREATE TABLE IF NOT EXISTS staff (
             staff_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -240,7 +230,6 @@ def init_db():
         )
     ''')
 
-    # Communication & Parent Requests/Feedback
     c.execute('''
         CREATE TABLE IF NOT EXISTS messages (
             msg_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -255,7 +244,6 @@ def init_db():
         )
     ''')
 
-    # System Users for Login Portals
     c.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -266,7 +254,6 @@ def init_db():
         )
     ''')
 
-    # Seed default staff logins if empty
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()[0] == 0:
         default_users = [
@@ -289,3 +276,27 @@ if "logged_in" not in st.session_state:
     st.session_state.role = None
     st.session_state.user_name = None
     st.session_state.parent_phone = None
+
+lang_col1, lang_col2 = st.columns([3, 1])
+with lang_col2:
+    selected_lang = st.selectbox(
+        "🌐 Language / Ururimi",
+        ["English", "Kinyarwanda", "French", "Kiswahili"],
+        index=["English", "Kinyarwanda", "French", "Kiswahili"].index(st.session_state.lang)
+    )
+    st.session_state.lang = selected_lang
+
+T = TRANSLATIONS[st.session_state.lang]
+
+st.markdown(f"""
+<style>
+    .main-header {{
+        background: linear-gradient(90deg, #0B6E4F 0%, #0A3D62 100%);
+        padding: 1.2rem;
+        border-radius: 10px;
+        color: white;
+        text-align: center;
+        margin-bottom: 1.5rem;
+    }}
+</style>
+<div class="main-header">
