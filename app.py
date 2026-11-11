@@ -655,4 +655,194 @@ elif menu == T["payments"]:
     if role in ["Administration", "Register Officer"]:
         st.divider()
         st.write("### 📊 Payment Revenue Reports (Active Students Only)")
-        all_active_pays = pd.read_sql_query("""
+        all_active_pays = pd.read_sql_query("""    if role in ["Administration", "Register Officer"]:
+        st.divider()
+        st.write("### 📊 Payment Revenue Reports (Active Students Only)")
+        all_active_pays = pd.read_sql_query(
+            "SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.paid_date, p.recorded_by FROM payments p JOIN students s ON p.student_id = s.student_id WHERE s.status = 'Active'",
+            conn
+        )
+
+        if all_active_pays.empty:
+            st.info("No payments recorded yet.")
+        else:
+            all_active_pays["paid_date_dt"] = pd.to_datetime(all_active_pays["paid_date"])
+            all_active_pays["Week"] = all_active_pays["paid_date_dt"].dt.to_period("W").astype(str)
+
+            rep_col1, rep_col2 = st.columns(2)
+            with rep_col1:
+                st.write("#### Revenue Per Week")
+                weekly_rep = all_active_pays.groupby("Week")["amount"].sum().reset_index()
+                weekly_rep.columns = ["Week", "Total Paid (RWF)"]
+                st.dataframe(weekly_rep, use_container_width=True)
+
+            with rep_col2:
+                st.write("#### Revenue Per Fee Month")
+                monthly_rep = all_active_pays.groupby("month_year")["amount"].sum().reset_index()
+                monthly_rep.columns = ["Fee Month", "Total Paid (RWF)"]
+                st.dataframe(monthly_rep, use_container_width=True)
+    conn.close()
+
+# ==================== 6. MONTHLY BUDGET & EXPENSES ====================
+elif menu == T["finance"]:
+    st.subheader(f"💰 {T['finance']}")
+    conn = get_conn()
+    selected_fin_month = st.selectbox("Select Month", PAYMENT_MONTHS)
+
+    col_b, col_e = st.columns(2)
+    with col_b:
+        st.write("#### Set Manual Monthly Budget")
+        with st.form("budget_form"):
+            budget_amt = st.number_input("Monthly Budget Amount (RWF)", min_value=0.0, step=10000.0)
+            budget_note = st.text_input("Budget Notes")
+            if st.form_submit_button("Save Monthly Budget"):
+                c = conn.cursor()
+                c.execute(
+                    "INSERT INTO monthly_budgets (month_year, allocated_amount, notes, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(month_year) DO UPDATE SET allocated_amount=excluded.allocated_amount, notes=excluded.notes, updated_by=excluded.updated_by",
+                    (selected_fin_month, budget_amt, budget_note, st.session_state.user_name)
+                )
+                conn.commit()
+                st.success(f"Budget for {selected_fin_month} saved: {budget_amt:,.0f} RWF")
+
+    with col_e:
+        st.write("#### Record Monthly Expense")
+        with st.form("expense_form", clear_on_submit=True):
+            exp_cat = st.selectbox("Category", ["Salaries", "Utilities", "Food / Supplies", "Maintenance", "Other"])
+            exp_desc = st.text_input("Description")
+            exp_amt = st.number_input("Expense Amount (RWF)", min_value=0.0, step=1000.0)
+            exp_date = st.date_input("Date", datetime.date.today())
+            if st.form_submit_button("Record Expense"):
+                c = conn.cursor()
+                c.execute(
+                    "INSERT INTO expenses (month_year, category, description, amount, date, recorded_by) VALUES (?, ?, ?, ?, ?, ?)",
+                    (selected_fin_month, exp_cat, exp_desc, exp_amt, exp_date.isoformat(), st.session_state.user_name)
+                )
+                conn.commit()
+                st.success("Expense recorded!")
+
+    b_df = pd.read_sql_query("SELECT * FROM monthly_budgets WHERE month_year = ?", conn, params=(selected_fin_month,))
+    e_df = pd.read_sql_query("SELECT * FROM expenses WHERE month_year = ?", conn, params=(selected_fin_month,))
+    conn.close()
+
+    allocated = b_df.iloc["allocated_amount"] if not b_df.empty else 0.0
+    spent = e_df["amount"].sum() if not e_df.empty else 0.0
+    remaining = allocated - spent
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Allocated Budget", f"{allocated:,.0f} RWF")
+    m2.metric("Total Expenses", f"{spent:,.0f} RWF")
+    m3.metric("Remaining Balance", f"{remaining:,.0f} RWF")
+
+    if not e_df.empty:
+        st.dataframe(e_df[['date', 'category', 'description', 'amount', 'recorded_by']], use_container_width=True)
+
+# ==================== 7. TEACHER WEEKLY REPORTS ====================
+elif menu == T["reports"]:
+    st.subheader(f"📋 {T['reports']}")
+    conn = get_conn()
+
+    with st.form("weekly_report_form", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        rep_grade = c1.selectbox("Grade Taught", ["P1", "P2", "P3", "P4", "P5", "P6"])
+        week_end = c2.date_input("Week Ending Date", datetime.date.today())
+        topics = st.text_area("Topics & Lessons Covered This Week")
+        challenges = st.text_area("Student Challenges / Needs")
+        next_plan = st.text_area("Plan for Next Week")
+
+        if st.form_submit_button("Submit Weekly Report"):
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO weekly_reports (teacher_name, grade, week_ending, topics_covered, challenges, next_week_plan, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (st.session_state.user_name, rep_grade, week_end.isoformat(), topics, challenges, next_plan, datetime.datetime.now().isoformat())
+            )
+            conn.commit()
+            st.success("Weekly report submitted!")
+
+    st.write("### Submitted Weekly Reports")
+    rep_df = pd.read_sql_query("SELECT * FROM weekly_reports ORDER BY report_id DESC", conn)
+    conn.close()
+    if not rep_df.empty:
+        st.dataframe(rep_df, use_container_width=True)
+
+# ==================== 8. STAFF & WORKERS PORTAL ====================
+elif menu == T["staff"]:
+    st.subheader(f"👷 {T['staff']}")
+    conn = get_conn()
+
+    with st.expander("➕ Add Staff / Worker", expanded=True):
+        with st.form("add_staff_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            s_name = c1.text_input("Full Name *")
+            s_role = c2.selectbox("Worker Role *", ["Teacher", "Cleaner", "Safe Walker", "Security Guard", "Administration"])
+            s_phone = c1.text_input("Phone Number")
+            s_grade = c2.text_input("Assigned Grade / Post (e.g., P1, Main Gate)")
+            s_salary = c1.number_input("Monthly Salary (RWF)", min_value=0.0, step=5000.0)
+            s_status = c2.selectbox("Status", ["Active", "Inactive"])
+
+            if st.form_submit_button("Save Worker"):
+                if s_name:
+                    c = conn.cursor()
+                    c.execute(
+                        "INSERT INTO staff (full_name, role, phone, assigned_grade, monthly_salary, status, hired_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (s_name, s_role, s_phone, s_grade, s_salary, s_status, datetime.date.today().isoformat())
+                    )
+                    conn.commit()
+                    st.success(f"{s_name} ({s_role}) added!")
+
+    staff_df = pd.read_sql_query("SELECT * FROM staff ORDER BY role, full_name", conn)
+    conn.close()
+    if not staff_df.empty:
+        st.dataframe(staff_df, use_container_width=True)
+
+# ==================== 9. COMMUNICATION & PARENT PORTAL ====================
+elif menu == T["chat"]:
+    st.subheader(f"💬 {T['chat']}")
+    conn = get_conn()
+
+    if role == "Parents":
+        st.write("### Send Feedback or Request Student Permission")
+        my_kids = pd.read_sql_query(
+            "SELECT student_name, grade FROM students WHERE parent_phone = ? AND status = 'Active'",
+            conn, params=(st.session_state.parent_phone,)
+        )
+        kid_list = (my_kids["student_name"] + " (" + my_kids["grade"] + ")").tolist() if not my_kids.empty else ["General"]
+
+        with st.form("parent_msg_form", clear_on_submit=True):
+            req_type = st.selectbox("Message Type", ["Permission Request (Uruhushya)", "Parent Feedback (Igitekerezo)", "General Question"])
+            kid_sel = st.selectbox("Regarding Student", kid_list)
+            msg_body = st.text_area("Write your message or permission details...")
+            if st.form_submit_button("Send to School"):
+                if msg_body.strip():
+                    c = conn.cursor()
+                    c.execute(
+                        "INSERT INTO messages (sender_role, sender_name, parent_phone, student_name, msg_type, content, created_at) VALUES ('Parent', ?, ?, ?, ?, ?, ?)",
+                        (st.session_state.user_name, st.session_state.parent_phone, kid_sel, req_type, msg_body.strip(), datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+                    )
+                    conn.commit()
+                    st.success("Your message has been sent to the school administration!")
+
+        st.write("### Your Previous Messages & School Replies")
+        my_msgs = pd.read_sql_query(
+            "SELECT created_at, student_name, msg_type, content, reply FROM messages WHERE parent_phone = ? ORDER BY msg_id DESC",
+            conn, params=(st.session_state.parent_phone,)
+        )
+        st.dataframe(my_msgs, use_container_width=True)
+
+    else:
+        tab_staff_chat, tab_parent_req = st.tabs(["🏫 Staff Communication Board", "📩 Parent Permissions & Feedback"])
+
+        with tab_staff_chat:
+            with st.form("staff_chat_form", clear_on_submit=True):
+                staff_msg = st.text_input("Post a message or announcement to staff:")
+                if st.form_submit_button("Post Message"):
+                    if staff_msg.strip():
+                        c = conn.cursor()
+                        c.execute(
+                            "INSERT INTO messages (sender_role, sender_name, msg_type, content, created_at) VALUES (?, ?, 'Staff Chat', ?, ?)",
+                            (role, st.session_state.user_name, staff_msg.strip(), datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
+                        )
+                        conn.commit()
+                        st.rerun()
+
+            chat_df = pd.read_sql_query(
+
