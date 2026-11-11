@@ -276,7 +276,8 @@ if "logged_in" not in st.session_state:
     st.session_state.user_name = None
     st.session_state.parent_phone = None
 
-lang_col1, lang_col2 = st.columns()
+lang_col1, lang_col2 = st.columns(2)
+
 with lang_col2:
     selected_lang = st.selectbox(
         "🌐 Language / Ururimi",
