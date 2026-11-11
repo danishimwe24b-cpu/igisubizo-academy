@@ -276,8 +276,143 @@ def init_db():
             created_at TEXT
         )
     ''')
+        c.execute('''
+        CREATE TABLE IF NOT EXISTS password_requests (
+            req_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            full_name TEXT,
+            role TEXT,
+            new_password TEXT,
+            status TEXT DEFAULT 'Pending',
+            requested_at TEXT
+        )
+    ''')
 
     c.execute('''
+        CREATE TABLE IF NOT EXISTS conduct_records (
+            conduct_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_type TEXT,
+            person_name TEXT,
+            role_or_class TEXT,
+            incident_type TEXT,
+            points_change INTEGER,
+            description TEXT,
+            date TEXT,
+            recorded_by TEXT
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS tasks (
+            task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assigned_to TEXT,
+            staff_role TEXT,
+            task_title TEXT,
+            task_details TEXT,
+            due_date TEXT,
+            status TEXT DEFAULT 'Pending',
+            assigned_by TEXT
+        )
+    ''')
+
+    c.execute("SELECT COUNT(*) FROM users")
+    if c.fetchone() == 0:
+        default_users = [
+            ("admin", "admin123", "Administration", "Head Administrator", "ALL", "ALL"),
+            ("register", "reg123", "Register Officer", "School Registrar", "ALL", "ALL"),
+            ("teacher", "teach123", "Teacher", "Default Teacher", "P1A", "Mathematics")
+        ]
+        c.executemany(
+            "INSERT INTO users (username, password, role, full_name, assigned_class, assigned_subject) VALUES (?, ?, ?, ?, ?, ?)",
+            default_users
+        )
+
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# ==================== PDF REPORT CARD GENERATOR WITH SCHOOL LOGO ====================
+def generate_report_card_pdf(student_row, grades_df, conduct_score, term_label):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    if os.path.exists(LOGO_PATH):
+        logo_img = RLImage(LOGO_PATH, width=95, height=85)
+        header_tbl = Table([
+            [logo_img, Paragraph("<b>IGISUBIZO ACADEMY</b><br/><font size=11>Excellence, Discipline &amp; Knowledge</font><br/><font size=10>Official Academic &amp; Conduct Report Card — " + term_label + "</font>", styles["Title"])]
+        ], colWidths=[110, 380])
+        header_tbl.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (0, 0), "CENTER"),
+        ]))
+        elements.append(header_tbl)
+    else:
+        elements.append(Paragraph("<b>IGISUBIZO ACADEMY</b>", styles["Title"]))
+        elements.append(Paragraph(f"Official Student Academic &amp; Conduct Report Card — {term_label}", styles["Heading3"]))
+
+    elements.append(Spacer(1, 14))
+
+    info_data = [
+        ["Student Name:", student_row["student_name"], "Class Level:", student_row["grade"]],
+        ["Parent / Guardian:", student_row["parent_name"] or "N/A", "Parent Phone:", student_row["parent_phone"] or "N/A"],
+        ["Conduct Score:", f"{conduct_score} / 100", "Date Issued:", datetime.date.today().isoformat()]
+    ]
+    info_table = Table(info_data, colWidths=[115, 145, 110, 120])
+    info_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
+        ("BOX", (0, 0), (-1, -1), 1, colors.black),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+    ]))
+    elements.append(info_table)
+    elements.append(Spacer(1, 16))
+
+    table_data = [["Subject", "Homework", "Exercise", "Quiz", "Exam", "Average (%)"]]
+    total_avgs = []
+    if not grades_df.empty:
+        piv = grades_df.pivot_table(index="subject", columns="assessment_type", values="score", aggfunc="mean")
+        for subj in piv.index:
+            hw = piv.loc[subj, "Homework"] if "Homework" in piv.columns and pd.notna(piv.loc[subj, "Homework"]) else "-"
+            ex = piv.loc[subj, "Exercise"] if "Exercise" in piv.columns and pd.notna(piv.loc[subj, "Exercise"]) else "-"
+            qz = piv.loc[subj, "Quiz"] if "Quiz" in piv.columns and pd.notna(piv.loc[subj, "Quiz"]) else "-"
+            xm = piv.loc[subj, "Exam"] if "Exam" in piv.columns and pd.notna(piv.loc[subj, "Exam"]) else "-"
+            numeric_vals = [v for v in [hw, ex, qz, xm] if isinstance(v, (int, float))]
+            avg_val = round(sum(numeric_vals) / len(numeric_vals), 1) if numeric_vals else 0.0
+            total_avgs.append(avg_val)
+            table_data.append([
+                subj,
+                f"{hw:.1f}" if isinstance(hw, float) else hw,
+                f"{ex:.1f}" if isinstance(ex, float) else ex,
+                f"{qz:.1f}" if isinstance(qz, float) else qz,
+                f"{xm:.1f}" if isinstance(xm, float) else xm,
+                f"{avg_val:.1f}%"
+            ])
+
+    overall_pct = round(sum(total_avgs) / len(total_avgs), 1) if total_avgs else 0.0
+    table_data.append(["OVERALL AVERAGE", "", "", "", "", f"{overall_pct:.1f}%"])
+
+    grade_table = Table(table_data, colWidths=[130, 70, 70, 70, 70, 80])
+    grade_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0B6E4F")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.lightgrey),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+    ]))
+    elements.append(grade_table)
+    elements.append(Spacer(1, 24))
+    elements.append(Paragraph("Class Teacher Signature: ______________________    Head Administrator Stamp &amp; Signature: ______________________", styles["Normal"]))
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
 # ==================== SESSION STATE & LANGUAGE ====================
 for key, val in {
     "lang": "English",
