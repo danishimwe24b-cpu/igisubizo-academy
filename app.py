@@ -276,7 +276,7 @@ def init_db():
             created_at TEXT
         )
     ''')
-        c.execute('''
+            c.execute('''
         CREATE TABLE IF NOT EXISTS password_requests (
             req_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT,
