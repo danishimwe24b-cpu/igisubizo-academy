@@ -325,7 +325,8 @@ if not st.session_state.logged_in:
                 if not df_p.empty and password_input in ["1234", username_input.strip()]:
                     st.session_state.logged_in = True
                     st.session_state.role = "Parents"
-                    st.session_state.user_name = df_p.iloc["parent_name"] or "Parent"
+                    st.session_state.user_name = df_p.iloc[0]["parent_name"]
+
                     st.session_state.parent_phone = username_input.strip()
                     st.rerun()
                 else:
@@ -338,8 +339,8 @@ if not st.session_state.logged_in:
                 if not df_u.empty:
                     st.session_state.logged_in = True
                     st.session_state.role = portal_role
-                    st.session_state.user_name = df_u.iloc["full_name"]
-                    st.rerun()
+                    st.session_state.user_name = df_u.iloc[0]["full_name"]
+
                 else:
                     st.error("Invalid credentials for selected role.")
             conn.close()
@@ -610,8 +611,8 @@ elif menu == T["payments"]:
             matched_students = pd.DataFrame()
 
     if not matched_students.empty:
-        parent_label = matched_students.iloc["parent_name"]
-        parent_ph = matched_students.iloc["parent_phone"]
+        parent_label = matched_students.iloc[0]["parent_name"]
+        parent_ph = matched_students.iloc[0]["parent_phone"]
         st.success(f"👨‍👩‍👧‍👦 Family Group Found — Parent: **{parent_label}** ({parent_ph}) | Active Children: **{len(matched_students)}**")
 
         sids = tuple(matched_students["student_id"].tolist())
@@ -729,7 +730,7 @@ elif menu == T["finance"]:
     remaining = allocated - spent
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Allocated Budget", f"{allocated:,.0f} RWF")
+    m1.metricb_df.iloc[0]["allocated_amount"]
     m2.metric("Total Expenses", f"{spent:,.0f} RWF")
     m3.metric("Remaining Balance", f"{remaining:,.0f} RWF")
 
