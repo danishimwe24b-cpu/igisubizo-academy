@@ -655,8 +655,7 @@ elif menu == T["payments"]:
     if role in ["Administration", "Register Officer"]:
         st.divider()
         st.write("### 📊 Payment Revenue Reports (Active Students Only)")
-        all_active_pays = pd.read_sql_query("""    if role in ["Administration", "Register Officer"]:
-        st.divider()
+        
         st.write("### 📊 Payment Revenue Reports (Active Students Only)")
         all_active_pays = pd.read_sql_query(
             "SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.paid_date, p.recorded_by FROM payments p JOIN students s ON p.student_id = s.student_id WHERE s.status = 'Active'",
