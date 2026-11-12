@@ -11,9 +11,13 @@ def get_conn():
 
 def ensure_column(cursor, table_name, column_name, column_def):
     cursor.execute(f"PRAGMA table_info({table_name})")
-    existing_cols = [row for row in cursor.fetchall()]
+    existing_cols = [row[1] for row in cursor.fetchall()]
     if column_name not in existing_cols:
-        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+        try:
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
+        except sqlite3.OperationalError:
+            pass
+
 
 def init_db():
     conn = get_conn()
@@ -109,7 +113,9 @@ def init_db():
         status TEXT DEFAULT 'Active'
     )''')
     for col, col_def in [
-        ("full_name", "TEXT"), ("role", "TEXT"), ("username", "TEXT"),
+            c.execute("PRAGMA table_info(staff)")
+    staff_cols = [row[1] for row in c.fetchall()]
+
         ("password", "TEXT"), ("phone", "TEXT"), ("salary", "REAL DEFAULT 50000"),
         ("status", "TEXT DEFAULT 'Active'")
     ]:
