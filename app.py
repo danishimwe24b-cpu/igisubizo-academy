@@ -332,17 +332,16 @@ def init_db():
         )
     ''')
 
-    c.execute("SELECT COUNT(*) FROM users")
-    if c.fetchone() == 0:
         default_users = [
-            ("admin", "admin123", "Administration", "Head Administrator", "ALL", "ALL"),
-            ("register", "reg123", "Register Officer", "School Registrar", "ALL", "ALL"),
-            ("teacher", "teach123", "Teacher", "Default Teacher", "P1A", "Mathematics")
-        ]
-        c.executemany(
-            "INSERT INTO users (username, password, role, full_name, assigned_class, assigned_subject) VALUES (?, ?, ?, ?, ?, ?)",
-            default_users
-        )
+        ("admin", "admin123", "Administration", "Head Administrator", "ALL", "ALL"),
+        ("register", "reg123", "Register Officer", "School Registrar", "ALL", "ALL"),
+        ("teacher", "teach123", "Teacher", "Default Teacher", "P1A", "Mathematics")
+    ]
+    c.executemany(
+        "INSERT OR IGNORE INTO users (username, password, role, full_name, assigned_class, assigned_subject) VALUES (?, ?, ?, ?, ?, ?)",
+        default_users
+    )
+
 
     conn.commit()
     conn.close()
