@@ -90,7 +90,8 @@ def render_report_card(conn, T):
         col1, col2 = st.columns(2)
         sel_name = col1.selectbox("Select Student", students_df["student_name"].tolist())
         sel_term = col2.selectbox("Select Term", ["Term 1", "Term 2", "Term 3"])
-        student_row = students_df[students_df["student_name"] == sel_name].iloc
+        student_row = students_df[students_df["student_name"] == sel_name].to_dict('records').pop(0)
+
         grades_df = pd.read_sql_query("SELECT * FROM grades WHERE student_id = ? AND term = ?", conn, params=(int(student_row["student_id"]), sel_term))
         if grades_df.empty:
             st.info(f"No grades recorded yet for {sel_name} in {sel_term}.")
