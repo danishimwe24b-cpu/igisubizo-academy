@@ -527,12 +527,6 @@ role = st.session_state.role
 st.sidebar.success(f"👤 {st.session_state.user_name}\n\n**Role:** {role}")
 if role == "Teacher":
     st.sidebar.info(f"🏫 Class: **{st.session_state.assigned_class}**\n\n📚 Subject: **{st.session_state.assigned_subject}**")
-
-if st.sidebar.button(T["logout_btn"]):
-    st.session_state.logged_in = False
-    st.session_state.role = None
-    st.rerun()
-
 if role == "Administration":
     menu_options = [
         T["dashboard"], T["students"], T["grades"], T["report_card"], T["attendance"],
@@ -548,7 +542,7 @@ elif role == "Teacher":
     menu_options = [
         T["grades"], T["attendance"], T["conduct"], T["reports"],
         T["tasks"], T["chat"], T["change_pwd"]
-    
+    ]
 else:
     menu_options = [
         T["chat"], T["grades"], T["report_card"], T["payments"]
