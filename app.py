@@ -9,15 +9,15 @@ st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wid
 init_db()
 
 if "logged_in" not in st.session_state:
-    st.session_state.logged_in = True
-    st.session_state.user_name = "Head Administrator"
-    st.session_state.user_role = "Administration"
-    st.session_state.username = "admin"
+    st.session_state.logged_in = False
+    st.session_state.user_name = ""
+    st.session_state.user_role = ""
+    st.session_state.username = ""
 
 if "lang" not in st.session_state:
     st.session_state.lang = "English"
 
-col_spacer, col_lang = st.columns(2)
+col_spacer, col_lang = st.columns()
 with col_lang:
     st.session_state.lang = st.selectbox("🌐 Language / Ururimi", list(TRANSLATIONS.keys()), index=list(TRANSLATIONS.keys()).index(st.session_state.lang))
 
@@ -32,34 +32,51 @@ st.markdown(f"""
 
 if not st.session_state.logged_in:
     st.subheader(T["login_header"])
+    st.info(
+        "**Default Login Credentials:**\n"
+        "- **Administration:** `admin` / `admin123`\n"
+        "- **Teacher:** `teacher1` / `teacher123`\n"
+        "- **Register Officer:** `register1` / `register123`\n"
+        "- **Parent:** Registered Parent Phone / `1234`"
+    )
     with st.form("login_form"):
         role = st.selectbox(T["select_role"], ["Administration", "Teacher", "Register Officer", "Parent"])
-        uname = st.text_input(T["username"], placeholder="admin")
-        pwd = st.text_input(T["password"], type="password", placeholder="admin123")
+        uname = st.text_input(T["username"]).strip()
+        pwd = st.text_input(T["password"], type="password").strip()
         if st.form_submit_button(T["login_btn"]):
             conn = get_conn()
             if role == "Parent":
-                df_p = pd.read_sql_query("SELECT * FROM students WHERE parent_phone = ?", conn, params=(uname,))
+                df_p = pd.read_sql_query("SELECT * FROM students WHERE TRIM(parent_phone) = ?", conn, params=(uname,))
                 if not df_p.empty and pwd == "1234":
                     st.session_state.logged_in = True
-                    st.session_state.user_name = df_p.iloc["parent_name"]
+                    st.session_state.user_name = df_p.iloc["parent_name"] or "Parent"
                     st.session_state.user_role = "Parent"
                     st.session_state.username = uname
                     st.rerun()
                 else:
                     st.error("Invalid Parent Phone or PIN (Default PIN: 1234)")
             else:
-                df_s = pd.read_sql_query("SELECT * FROM staff WHERE username = ? AND password = ? AND status = 'Active'", conn, params=(uname, pwd))
+                df_s = pd.read_sql_query(
+                    "SELECT * FROM staff WHERE LOWER(TRIM(username)) = ? AND TRIM(password) = ? AND role = ? AND status = 'Active'",
+                    conn, params=(uname.lower(), pwd, role)
+                )
                 if not df_s.empty:
                     st.session_state.logged_in = True
                     st.session_state.user_name = df_s.iloc["full_name"]
                     st.session_state.user_role = df_s.iloc["role"]
-                    st.session_state.username = uname
+                    st.session_state.username = df_s.iloc["username"]
                     st.rerun()
                 else:
-                    st.error("Invalid credentials. Try username: admin / password: admin123")
+                    st.error(f"Invalid credentials for {role}. Check your username, password, and selected role.")
             conn.close()
     st.stop()
+
+ROLE_MENUS = {
+    "Administration": ["dashboard", "students", "grades", "report_card", "attendance", "conduct", "payments", "finance", "reports", "staff", "tasks", "chat", "change_pwd"],
+    "Teacher": ["grades", "report_card", "attendance", "conduct", "reports", "tasks", "chat", "change_pwd"],
+    "Register Officer": ["students", "payments", "report_card", "tasks", "chat", "change_pwd"],
+    "Parent": ["report_card", "payments", "chat"]
+}
 
 with st.sidebar:
     st.success(f"👤 **{st.session_state.user_name}**\n\nRole: **{st.session_state.user_role}**")
@@ -67,7 +84,7 @@ with st.sidebar:
         st.session_state.logged_in = False
         st.rerun()
     st.divider()
-    nav_keys = ["dashboard", "students", "grades", "report_card", "attendance", "conduct", "payments", "finance", "reports", "staff", "tasks", "chat", "change_pwd"]
+    nav_keys = ROLE_MENUS.get(st.session_state.user_role, ROLE_MENUS["Administration"])
     nav_labels = [T[k] for k in nav_keys]
     selected_label = st.radio(T["menu"], nav_labels)
     active_page = nav_keys[nav_labels.index(selected_label)]
