@@ -3,7 +3,8 @@ import streamlit as st
 from config import TRANSLATIONS
 from database import get_conn, init_db
 from pages_academic import render_dashboard, render_students, render_grades, render_report_card, render_attendance
-from pages_admin import render_conduct, render_payments, render_finance, render_reports, render_staff, render_tasks, render_chat, render_change_pwd
+from pages_finance import render_conduct, render_payments, render_finance, render_reports
+from pages_comms import render_staff, render_tasks, render_chat, render_change_pwd
 
 st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
 init_db()
@@ -13,13 +14,19 @@ if "logged_in" not in st.session_state:
     st.session_state.user_name = ""
     st.session_state.user_role = ""
     st.session_state.username = ""
+    st.session_state.assigned_classes = "ALL"
+    st.session_state.assigned_subjects = "ALL"
 
 if "lang" not in st.session_state:
     st.session_state.lang = "English"
 
 col_spacer, col_lang = st.columns((3, 1))
 with col_lang:
-    st.session_state.lang = st.selectbox("🌐 Language / Ururimi", list(TRANSLATIONS.keys()), index=list(TRANSLATIONS.keys()).index(st.session_state.lang))
+    st.session_state.lang = st.selectbox(
+        "🌐 Language / Ururimi",
+        list(TRANSLATIONS.keys()),
+        index=list(TRANSLATIONS.keys()).index(st.session_state.lang)
+    )
 
 T = TRANSLATIONS[st.session_state.lang]
 
@@ -33,9 +40,9 @@ st.markdown(f"""
 if not st.session_state.logged_in:
     st.subheader(T["login_header"])
     st.info(
-        "**Default Login Credentials:**\n"
+        "**Default Portal Credentials:**\n"
         "- **Administration:** `admin` / `admin123`\n"
-        "- **Teacher:** `teacher1` / `teacher123`\n"
+        "- **Teacher:** `teacher1` / `teacher123` (or any teacher account created by Administration)\n"
         "- **Register Officer:** `register1` / `register123`\n"
         "- **Parent:** Registered Parent Phone / `1234`"
     )
@@ -53,20 +60,30 @@ if not st.session_state.logged_in:
                     st.session_state.user_name = rec.get("parent_name") or "Parent"
                     st.session_state.user_role = "Parent"
                     st.session_state.username = uname
+                    st.session_state.assigned_classes = "ALL"
+                    st.session_state.assigned_subjects = "ALL"
                     st.rerun()
                 else:
                     st.error("Invalid Parent Phone or PIN (Default PIN: 1234)")
             else:
-                df_s = pd.read_sql_query(
-                    "SELECT * FROM staff WHERE LOWER(TRIM(username)) = ? AND TRIM(password) = ? AND role = ? AND status = 'Active'",
-                    conn, params=(uname.lower(), pwd, role)
-                )
+                accepted_roles = ["Register Officer", "Register Office"] if role == "Register Officer" else [role]
+                placeholders = ",".join("?" for _ in accepted_roles)
+                query = f"""
+                    SELECT * FROM staff
+                    WHERE LOWER(TRIM(username)) = ?
+                      AND TRIM(password) = ?
+                      AND TRIM(role) IN ({placeholders})
+                      AND status = 'Active'
+                """
+                df_s = pd.read_sql_query(query, conn, params=(uname.lower(), pwd, *accepted_roles))
                 if not df_s.empty:
                     rec = df_s.to_dict('records').pop(0)
                     st.session_state.logged_in = True
                     st.session_state.user_name = rec.get("full_name") or uname
-                    st.session_state.user_role = rec.get("role")
+                    st.session_state.user_role = "Register Officer" if rec.get("role") in ("Register Officer", "Register Office") else rec.get("role")
                     st.session_state.username = rec.get("username")
+                    st.session_state.assigned_classes = rec.get("assigned_classes") or "ALL"
+                    st.session_state.assigned_subjects = rec.get("assigned_subjects") or "ALL"
                     st.rerun()
                 else:
                     st.error(f"Invalid credentials for {role}. Check your username, password, and selected role.")
@@ -76,12 +93,14 @@ if not st.session_state.logged_in:
 ROLE_MENUS = {
     "Administration": ["dashboard", "students", "grades", "report_card", "attendance", "conduct", "payments", "finance", "reports", "staff", "tasks", "chat", "change_pwd"],
     "Teacher": ["grades", "report_card", "attendance", "conduct", "reports", "tasks", "chat", "change_pwd"],
-    "Register Officer": ["students", "payments", "report_card", "tasks", "chat", "change_pwd"],
+    "Register Officer": ["dashboard", "students", "payments", "report_card", "tasks", "chat", "change_pwd"],
     "Parent": ["report_card", "payments", "chat"]
 }
 
 with st.sidebar:
     st.success(f"👤 **{st.session_state.user_name}**\n\nRole: **{st.session_state.user_role}**")
+    if st.session_state.user_role == "Teacher":
+        st.caption(f"Classes: {st.session_state.assigned_classes}\n\nSubjects: {st.session_state.assigned_subjects}")
     if st.button(T["logout_btn"], use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
