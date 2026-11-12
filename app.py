@@ -548,7 +548,7 @@ elif role == "Teacher":
     menu_options = [
         T["grades"], T["attendance"], T["conduct"], T["reports"],
         T["tasks"], T["chat"], T["change_pwd"]
-    ]
+    
 else:
     menu_options = [
         T["chat"], T["grades"], T["report_card"], T["payments"]
@@ -646,6 +646,4 @@ if menu == T["dashboard"]:
         students_df = pd.read_sql_query(
             "SELECT student_id, student_name, grade FROM students WHERE grade = ? AND status = 'Active' ORDER BY student_name",
             conn, params=(selected_grade,)
-        )
-
         )
