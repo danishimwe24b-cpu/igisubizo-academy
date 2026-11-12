@@ -4,7 +4,11 @@ from config import TRANSLATIONS
 from database import get_conn, init_db
 from pages_academic import render_dashboard, render_students, render_grades, render_report_card, render_attendance
 from pages_finance import render_conduct, render_payments, render_finance, render_reports
-from pages_comms import render_staff, render_tasks, render_chat, render_change_pwd
+from pages_academic import render_dashboard, render_students, render_grades, render_report_card, render_attendance
+from pages_finance import render_conduct, render_payments, render_finance, render_reports
+from pages_comms import render_staff, render_tasks
+from pages_chat import render_chat, render_change_pwd
+
 
 st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
 init_db()
