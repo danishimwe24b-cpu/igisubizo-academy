@@ -192,7 +192,8 @@ def generate_report_card_pdf(student_row, grades_df, term):
     overall_pct = (total_score / total_max * 100) if total_max > 0 else 0
     data.append(["TOTAL / AVERAGE", "-", f"{total_score:.1f}", f"{total_max:.1f}", f"{overall_pct:.1f}%"])
 
-    table = Table(data, colWidths=)
+    table = Table(data, colWidths=(130, 100, 70, 70, 80))
+
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0f5132")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
