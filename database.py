@@ -109,11 +109,14 @@ def init_db():
         password TEXT,
         phone TEXT,
         salary REAL,
+        assigned_classes TEXT DEFAULT 'ALL',
+        assigned_subjects TEXT DEFAULT 'ALL',
         status TEXT DEFAULT 'Active'
     )''')
     for col, col_def in (
         ("full_name", "TEXT"), ("role", "TEXT"), ("username", "TEXT"),
         ("password", "TEXT"), ("phone", "TEXT"), ("salary", "REAL DEFAULT 50000"),
+        ("assigned_classes", "TEXT DEFAULT 'ALL'"), ("assigned_subjects", "TEXT DEFAULT 'ALL'"),
         ("status", "TEXT DEFAULT 'Active'")
     ):
         ensure_column(c, "staff", col, col_def)
@@ -142,24 +145,29 @@ def init_db():
         message TEXT,
         created_at TEXT
     )''')
+    for col, col_def in (
+        ("sender_name", "TEXT"), ("sender_role", "TEXT"), ("recipient", "TEXT"),
+        ("subject", "TEXT"), ("message", "TEXT"), ("created_at", "TEXT")
+    ):
+        ensure_column(c, "messages", col, col_def)
 
     default_staff = (
-        ("Head Administrator", "Administration", "admin", "admin123", "0780000000", 60000),
-        ("Default Teacher", "Teacher", "teacher1", "teacher123", "0780000001", 50000),
-        ("Register Officer", "Register Officer", "register1", "register123", "0780000002", 50000),
+        ("Head Administrator", "Administration", "admin", "admin123", "0780000000", 60000, "ALL", "ALL"),
+        ("Default Teacher", "Teacher", "teacher1", "teacher123", "0780000001", 50000, "ALL", "ALL"),
+        ("Register Officer", "Register Officer", "register1", "register123", "0780000002", 50000, "ALL", "ALL"),
     )
-    for full_name, role, uname, pwd, phone, salary in default_staff:
+    for full_name, role, uname, pwd, phone, salary, a_cls, a_sub in default_staff:
         c.execute("SELECT COUNT(*) FROM staff WHERE LOWER(username) = ?", (uname.lower(),))
         if c.fetchone() == (0,):
             if "name" in staff_cols:
                 c.execute(
-                    "INSERT OR IGNORE INTO staff (name, full_name, role, username, password, phone, salary, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active')",
-                    (full_name, full_name, role, uname, pwd, phone, salary)
+                    "INSERT OR IGNORE INTO staff (name, full_name, role, username, password, phone, salary, assigned_classes, assigned_subjects, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')",
+                    (full_name, full_name, role, uname, pwd, phone, salary, a_cls, a_sub)
                 )
             else:
                 c.execute(
-                    "INSERT OR IGNORE INTO staff (full_name, role, username, password, phone, salary, status) VALUES (?, ?, ?, ?, ?, ?, 'Active')",
-                    (full_name, role, uname, pwd, phone, salary)
+                    "INSERT OR IGNORE INTO staff (full_name, role, username, password, phone, salary, assigned_classes, assigned_subjects, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Active')",
+                    (full_name, role, uname, pwd, phone, salary, a_cls, a_sub)
                 )
 
     conn.commit()
