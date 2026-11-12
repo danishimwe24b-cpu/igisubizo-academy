@@ -18,7 +18,6 @@ if "lang" not in st.session_state:
     st.session_state.lang = "English"
 
 col_spacer, col_lang = st.columns((3, 1))
-
 with col_lang:
     st.session_state.lang = st.selectbox("🌐 Language / Ururimi", list(TRANSLATIONS.keys()), index=list(TRANSLATIONS.keys()).index(st.session_state.lang))
 
@@ -49,8 +48,9 @@ if not st.session_state.logged_in:
             if role == "Parent":
                 df_p = pd.read_sql_query("SELECT * FROM students WHERE TRIM(parent_phone) = ?", conn, params=(uname,))
                 if not df_p.empty and pwd == "1234":
+                    rec = df_p.to_dict('records').pop(0)
                     st.session_state.logged_in = True
-                    st.session_state.user_name = df_p.iloc["parent_name"] or "Parent"
+                    st.session_state.user_name = rec.get("parent_name") or "Parent"
                     st.session_state.user_role = "Parent"
                     st.session_state.username = uname
                     st.rerun()
@@ -62,10 +62,11 @@ if not st.session_state.logged_in:
                     conn, params=(uname.lower(), pwd, role)
                 )
                 if not df_s.empty:
+                    rec = df_s.to_dict('records').pop(0)
                     st.session_state.logged_in = True
-                    st.session_state.user_name = df_s.iloc["full_name"]
-                    st.session_state.user_role = df_s.iloc["role"]
-                    st.session_state.username = df_s.iloc["username"]
+                    st.session_state.user_name = rec.get("full_name") or uname
+                    st.session_state.user_role = rec.get("role")
+                    st.session_state.username = rec.get("username")
                     st.rerun()
                 else:
                     st.error(f"Invalid credentials for {role}. Check your username, password, and selected role.")
