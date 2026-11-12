@@ -629,7 +629,7 @@ if menu == T["dashboard"]:
         st.divider()
     conn = get_conn()
 
-                 if role == "Parents":
+    if role == "Parents":
         students_df = pd.read_sql_query(
             "SELECT student_id, student_name, grade FROM students WHERE parent_phone = ? AND status = 'Active'",
             conn, params=(st.session_state.parent_phone,)
