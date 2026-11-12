@@ -332,7 +332,7 @@ def init_db():
         )
     ''')
 
-        default_users = [
+    default_users = [
         ("admin", "admin123", "Administration", "Head Administrator", "ALL", "ALL"),
         ("register", "reg123", "Register Officer", "School Registrar", "ALL", "ALL"),
         ("teacher", "teach123", "Teacher", "Default Teacher", "P1A", "Mathematics")
