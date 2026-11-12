@@ -627,16 +627,21 @@ if menu == T["dashboard"]:
         st.bar_chart(active_students["grade"].value_counts().reindex(CLASS_LEVELS).dropna())
 
     st.divider()
-    st.write("### 🏆 Top Performing Teachers (Prize Evaluation Leaderboard)")
-    teachers_df = pd.read_sql_query("SELECT full_name, assigned_class, assigned_subject FROM users WHERE role='Teacher'", conn)
-    grades_all = pd.read_sql_query("SELECT teacher, AVG(score) as avg_score, COUNT(*) as assessments FROM grades GROUP BY teacher", conn)
-    reports_all = pd.read_sql_query("SELECT teacher_name, COUNT(*) as weekly_reports FROM weekly_reports GROUP BY teacher_name", conn)
-    conduct_all = pd.read_sql_query("SELECT person_name, COALESCE(SUM(points_change), 0) as conduct_pts FROM conduct_records WHERE person_type='Staff' GROUP BY person_name", conn)
-    conn.close()
-
-    if not teachers_df.empty:
-        perf = teachers_df.merge(grades_all, left_on="full_name", right_on="teacher", how="left")
-        perf = perf.merge(reports_all, left_on="full_name", right_on="teacher_name", how="left")
-            else:
-                st.error("Passwords do not match or are empty.")
-    conn.close()
+        if role == "Parents":
+        students_df = pd.read_sql_query(
+            "SELECT student_id, student_name, grade FROM students WHERE parent_phone = ? AND status = 'Active'",
+            conn, params=(st.session_state.parent_phone,)
+        )
+    elif role == "Teacher" and st.session_state.assigned_class not in [None, "", "ALL"]:
+        selected_grade = st.session_state.assigned_class
+        st.info(f"🔒 Confidential Teacher View — Assigned Class: **{selected_grade}** | Assigned Subject: **{st.session_state.assigned_subject}**")
+        students_df = pd.read_sql_query(
+            "SELECT student_id, student_name, grade FROM students WHERE grade = ? AND status = 'Active' ORDER BY student_name",
+            conn, params=(selected_grade,)
+        )
+    else:
+        selected_grade = st.selectbox(f"📌 {T['select_grade']}", CLASS_LEVELS)
+        students_df = pd.read_sql_query(
+            "SELECT student_id, student_name, grade FROM students WHERE grade = ? AND status = 'Active' ORDER BY student_name",
+            conn, params=(selected_grade,)
+        )
