@@ -17,7 +17,8 @@ if "logged_in" not in st.session_state:
 if "lang" not in st.session_state:
     st.session_state.lang = "English"
 
-col_spacer, col_lang = st.columns()
+col_spacer, col_lang = st.columns((3, 1))
+
 with col_lang:
     st.session_state.lang = st.selectbox("🌐 Language / Ururimi", list(TRANSLATIONS.keys()), index=list(TRANSLATIONS.keys()).index(st.session_state.lang))
 
