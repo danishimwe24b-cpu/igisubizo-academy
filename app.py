@@ -275,8 +275,26 @@ def init_db():
             reply TEXT,
             created_at TEXT
         )
+       ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT,
+            role TEXT,
+            full_name TEXT,
+            assigned_class TEXT,
+            assigned_subject TEXT
+        )
     ''')
-            c.execute('''
+    for col_name in ["assigned_class", "assigned_subject"]:
+        try:
+            c.execute(f"ALTER TABLE users ADD COLUMN {col_name} TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+    c.execute('''
         CREATE TABLE IF NOT EXISTS password_requests (
             req_id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT,
@@ -287,7 +305,6 @@ def init_db():
             requested_at TEXT
         )
     ''')
-
     c.execute('''
         CREATE TABLE IF NOT EXISTS conduct_records (
             conduct_id INTEGER PRIMARY KEY AUTOINCREMENT,
