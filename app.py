@@ -17,7 +17,8 @@ if "logged_in" not in st.session_state:
 if "lang" not in st.session_state:
     st.session_state.lang = "English"
 
-col_spacer, col_lang = st.columns()
+col_spacer, col_lang = st.columns([3, 1])
+
 with col_lang:
     st.session_state.lang = st.selectbox(
         "🌐 Language / Ururimi",
@@ -85,7 +86,8 @@ if active_page == "dashboard":
     staff_df = pd.read_sql_query("SELECT * FROM staff WHERE status='Active'", conn)
     expenses_df = pd.read_sql_query("SELECT * FROM monthly_budgets", conn)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns([2, 2, 3])
+
     c1.metric(T["active_students"], len(students_df))
     c2.metric(T["total_collected"], f"{payments_df['amount'].sum():,.0f} RWF" if not payments_df.empty else "0 RWF")
     c3.metric("Active Staff", len(staff_df))
