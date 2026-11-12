@@ -11,7 +11,7 @@ def get_conn():
 
 def ensure_column(cursor, table_name, column_name, column_def):
     cursor.execute(f"PRAGMA table_info({table_name})")
-    existing_cols = [row for row in cursor.fetchall()]
+    existing_cols = [row[1] for row in cursor.fetchall()]
     if column_name not in existing_cols:
         cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
 
@@ -116,7 +116,7 @@ def init_db():
         ensure_column(c, "staff", col, col_def)
 
     c.execute("PRAGMA table_info(staff)")
-    staff_cols = [row for row in c.fetchall()]
+    staff_cols = [row[1] for row in c.fetchall()]
     if "name" in staff_cols:
         c.execute("UPDATE staff SET full_name = name WHERE full_name IS NULL")
 
@@ -141,7 +141,7 @@ def init_db():
     )''')
 
     c.execute("SELECT COUNT(*) FROM staff WHERE username = 'admin'")
-    if c.fetchone() == 0:
+    if c.fetchone()[0] == 0:
         if "name" in staff_cols:
             c.execute(
                 "INSERT OR IGNORE INTO staff (name, full_name, role, username, password, phone, salary, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active')",
@@ -185,7 +185,7 @@ def generate_report_card_pdf(student_row, grades_df, term):
     overall_pct = (total_score / total_max * 100) if total_max > 0 else 0
     data.append(["TOTAL / AVERAGE", "-", f"{total_score:.1f}", f"{total_max:.1f}", f"{overall_pct:.1f}%"])
 
-    table = Table(data, colWidths=)
+    table = Table(data, colWidths=[130, 100, 70, 70, 80])
     table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0f5132")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
