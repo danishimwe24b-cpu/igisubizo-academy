@@ -626,8 +626,9 @@ if menu == T["dashboard"]:
         st.write("### Active Students per Class Level")
         st.bar_chart(active_students["grade"].value_counts().reindex(CLASS_LEVELS).dropna())
 
-    st.divider()
-            if role == "Parents":
+    st.divider() conn = get_conn()
+
+                 if role == "Parents":
         students_df = pd.read_sql_query(
             "SELECT student_id, student_name, grade FROM students WHERE parent_phone = ? AND status = 'Active'",
             conn, params=(st.session_state.parent_phone,)
