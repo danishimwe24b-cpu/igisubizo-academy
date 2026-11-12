@@ -1,216 +1,102 @@
-import io
-import sqlite3
-import datetime
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
+import pandas as pd
+import streamlit as st
+from config import TRANSLATIONS
+from database import get_conn, init_db
+from pages_academic import render_dashboard, render_students, render_grades, render_report_card, render_attendance
+from pages_admin import render_conduct, render_payments, render_finance, render_reports, render_staff, render_tasks, render_chat, render_change_pwd
 
-def get_conn():
-    return sqlite3.connect('igisubizo_academy.db', timeout=15, check_same_thread=False)
+st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
+init_db()
 
-def ensure_column(cursor, table_name, column_name, column_def):
-    cursor.execute(f"PRAGMA table_info({table_name})")
-    existing_cols = [row[1] for row in cursor.fetchall()]
-    if column_name not in existing_cols:
-        try:
-            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}")
-        except sqlite3.OperationalError:
-            pass
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_name = ""
+    st.session_state.user_role = ""
+    st.session_state.username = ""
 
+if "lang" not in st.session_state:
+    st.session_state.lang = "English"
 
-def init_db():
-    conn = get_conn()
-    c = conn.cursor()
+col_spacer, col_lang = st.columns((3, 1))
+with col_lang:
+    st.session_state.lang = st.selectbox("🌐 Language / Ururimi", list(TRANSLATIONS.keys()), index=list(TRANSLATIONS.keys()).index(st.session_state.lang))
 
-    c.execute('''CREATE TABLE IF NOT EXISTS students (
-        student_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student_name TEXT NOT NULL,
-        grade TEXT NOT NULL,
-        parent_name TEXT,
-        parent_phone TEXT,
-        parent_email TEXT,
-        status TEXT DEFAULT 'Active',
-        created_at TEXT
-    )''')
+T = TRANSLATIONS[st.session_state.lang]
 
-    c.execute('''CREATE TABLE IF NOT EXISTS grades (
-        grade_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student_id INTEGER,
-        subject TEXT,
-        assessment_type TEXT DEFAULT 'Exam',
-        score REAL,
-        max_score REAL DEFAULT 100,
-        term TEXT,
-        date TEXT,
-        teacher TEXT,
-        FOREIGN KEY(student_id) REFERENCES students(student_id)
-    )''')
-    ensure_column(c, "grades", "assessment_type", "TEXT DEFAULT 'Exam'")
-    ensure_column(c, "grades", "max_score", "REAL DEFAULT 100")
+st.markdown(f"""
+<div style="background: linear-gradient(90deg, #0b5345 0%, #154360 100%); padding: 24px; border-radius: 12px; color: white; margin-bottom: 20px;">
+    <h1 style="margin: 0; color: white;">{T['title']}</h1>
+    <p style="margin: 5px 0 0 0; opacity: 0.9;">{T['subtitle']}</p>
+</div>
+""", unsafe_allow_html=True)
 
-    c.execute('''CREATE TABLE IF NOT EXISTS attendance (
-        attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student_id INTEGER,
-        date TEXT,
-        status TEXT,
-        teacher TEXT,
-        notes TEXT,
-        FOREIGN KEY(student_id) REFERENCES students(student_id)
-    )''')
-
-    c.execute('''CREATE TABLE IF NOT EXISTS payments (
-        payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        student_id INTEGER,
-        month_year TEXT,
-        amount REAL DEFAULT 5000,
-        paid_date TEXT,
-        recorded_by TEXT,
-        UNIQUE(student_id, month_year),
-        FOREIGN KEY(student_id) REFERENCES students(student_id)
-    )''')
-
-    c.execute('''CREATE TABLE IF NOT EXISTS monthly_budgets (
-        budget_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        month_year TEXT,
-        category TEXT,
-        allocated_amount REAL,
-        spent_amount REAL DEFAULT 0,
-        description TEXT,
-        date TEXT
-    )''')
-
-    c.execute('''CREATE TABLE IF NOT EXISTS conduct (
-        conduct_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        person_type TEXT,
-        person_name TEXT,
-        grade_or_role TEXT,
-        incident_type TEXT,
-        points_change INTEGER,
-        notes TEXT,
-        date TEXT,
-        recorded_by TEXT
-    )''')
-
-    c.execute('''CREATE TABLE IF NOT EXISTS teacher_reports (
-        report_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        teacher_name TEXT,
-        grade TEXT,
-        week_ending TEXT,
-        topics_covered TEXT,
-        challenges TEXT,
-        submitted_at TEXT
-    )''')
-
-    c.execute('''CREATE TABLE IF NOT EXISTS staff (
-        staff_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        full_name TEXT,
-        role TEXT,
-        username TEXT UNIQUE,
-        password TEXT,
-        phone TEXT,
-        salary REAL,
-        status TEXT DEFAULT 'Active'
-    )''')
-    for col, col_def in [
-            c.execute("PRAGMA table_info(staff)")
-    staff_cols = [row[1] for row in c.fetchall()]
-
-        ("password", "TEXT"), ("phone", "TEXT"), ("salary", "REAL DEFAULT 50000"),
-        ("status", "TEXT DEFAULT 'Active'")
-    ]:
-        ensure_column(c, "staff", col, col_def)
-
-    c.execute("PRAGMA table_info(staff)")
-    staff_cols = [row for row in c.fetchall()]
-    if "name" in staff_cols:
-        c.execute("UPDATE staff SET full_name = name WHERE full_name IS NULL")
-
-    c.execute('''CREATE TABLE IF NOT EXISTS tasks (
-        task_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        assigned_to TEXT,
-        title TEXT,
-        description TEXT,
-        due_date TEXT,
-        status TEXT DEFAULT 'Pending',
-        assigned_by TEXT
-    )''')
-
-    c.execute('''CREATE TABLE IF NOT EXISTS messages (
-        msg_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sender_name TEXT,
-        sender_role TEXT,
-        recipient TEXT,
-        subject TEXT,
-        message TEXT,
-        created_at TEXT
-    )''')
-
-    # Seed default accounts for Administration, Teacher, and Register Officer
-    default_staff = [
-        ("Head Administrator", "Administration", "admin", "admin123", "0780000000", 60000),
-        ("Default Teacher", "Teacher", "teacher1", "teacher123", "0780000001", 50000),
-        ("Register Officer", "Register Officer", "register1", "register123", "0780000002", 50000),
-    ]
-    for full_name, role, uname, pwd, phone, salary in default_staff:
-        c.execute("SELECT COUNT(*) FROM staff WHERE LOWER(username) = ?", (uname.lower(),))
-        if c.fetchone() == 0:
-            if "name" in staff_cols:
-                c.execute(
-                    "INSERT OR IGNORE INTO staff (name, full_name, role, username, password, phone, salary, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active')",
-                    (full_name, full_name, role, uname, pwd, phone, salary)
-                )
+if not st.session_state.logged_in:
+    st.subheader(T["login_header"])
+    st.info(
+        "**Default Login Credentials:**\n"
+        "- **Administration:** `admin` / `admin123`\n"
+        "- **Teacher:** `teacher1` / `teacher123`\n"
+        "- **Register Officer:** `register1` / `register123`\n"
+        "- **Parent:** Registered Parent Phone / `1234`"
+    )
+    with st.form("login_form"):
+        role = st.selectbox(T["select_role"], ["Administration", "Teacher", "Register Officer", "Parent"])
+        uname = st.text_input(T["username"]).strip()
+        pwd = st.text_input(T["password"], type="password").strip()
+        if st.form_submit_button(T["login_btn"]):
+            conn = get_conn()
+            if role == "Parent":
+                df_p = pd.read_sql_query("SELECT * FROM students WHERE TRIM(parent_phone) = ?", conn, params=(uname,))
+                if not df_p.empty and pwd == "1234":
+                    rec = df_p.to_dict('records').pop(0)
+                    st.session_state.logged_in = True
+                    st.session_state.user_name = rec.get("parent_name") or "Parent"
+                    st.session_state.user_role = "Parent"
+                    st.session_state.username = uname
+                    st.rerun()
+                else:
+                    st.error("Invalid Parent Phone or PIN (Default PIN: 1234)")
             else:
-                c.execute(
-                    "INSERT OR IGNORE INTO staff (full_name, role, username, password, phone, salary, status) VALUES (?, ?, ?, ?, ?, ?, 'Active')",
-                    (full_name, role, uname, pwd, phone, salary)
+                df_s = pd.read_sql_query(
+                    "SELECT * FROM staff WHERE LOWER(TRIM(username)) = ? AND TRIM(password) = ? AND role = ? AND status = 'Active'",
+                    conn, params=(uname.lower(), pwd, role)
                 )
+                if not df_s.empty:
+                    rec = df_s.to_dict('records').pop(0)
+                    st.session_state.logged_in = True
+                    st.session_state.user_name = rec.get("full_name") or uname
+                    st.session_state.user_role = rec.get("role")
+                    st.session_state.username = rec.get("username")
+                    st.rerun()
+                else:
+                    st.error(f"Invalid credentials for {role}. Check your username, password, and selected role.")
+            conn.close()
+    st.stop()
 
-    conn.commit()
-    conn.close()
+ROLE_MENUS = {
+    "Administration": ["dashboard", "students", "grades", "report_card", "attendance", "conduct", "payments", "finance", "reports", "staff", "tasks", "chat", "change_pwd"],
+    "Teacher": ["grades", "report_card", "attendance", "conduct", "reports", "tasks", "chat", "change_pwd"],
+    "Register Officer": ["students", "payments", "report_card", "tasks", "chat", "change_pwd"],
+    "Parent": ["report_card", "payments", "chat"]
+}
 
-def generate_report_card_pdf(student_row, grades_df, term):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
-    styles = getSampleStyleSheet()
-    elements = [
-        Paragraph("<b>IGISUBIZO ACADEMY</b>", styles['Title']),
-        Paragraph(f"Official Student Report Card - {term}", styles['Heading2']),
-        Spacer(1, 12),
-        Paragraph(
-            f"<b>Student Name:</b> {student_row['student_name']}<br/>"
-            f"<b>Class Level:</b> {student_row['grade']}<br/>"
-            f"<b>Parent / Guardian:</b> {student_row['parent_name']} ({student_row['parent_phone']})<br/>"
-            f"<b>Date Issued:</b> {datetime.date.today()}",
-            styles['Normal']
-        ),
-        Spacer(1, 16)
-    ]
+with st.sidebar:
+    st.success(f"👤 **{st.session_state.user_name}**\n\nRole: **{st.session_state.user_role}**")
+    if st.button(T["logout_btn"], use_container_width=True):
+        st.session_state.logged_in = False
+        st.rerun()
+    st.divider()
+    nav_keys = ROLE_MENUS.get(st.session_state.user_role, ROLE_MENUS["Administration"])
+    nav_labels = [T[k] for k in nav_keys]
+    selected_label = st.radio(T["menu"], nav_labels)
+    active_page = nav_keys[nav_labels.index(selected_label)]
 
-    data = [["Subject", "Assessment", "Score", "Max Score", "Percentage"]]
-    total_score, total_max = 0, 0
-    for _, row in grades_df.iterrows():
-        pct = (row['score'] / row['max_score'] * 100) if row['max_score'] else 0
-        data.append([row['subject'], row['assessment_type'], f"{row['score']:.1f}", f"{row['max_score']:.1f}", f"{pct:.1f}%"])
-        total_score += row['score']
-        total_max += row['max_score']
-
-    overall_pct = (total_score / total_max * 100) if total_max > 0 else 0
-    data.append(["TOTAL / AVERAGE", "-", f"{total_score:.1f}", f"{total_max:.1f}", f"{overall_pct:.1f}%"])
-
-    table = Table(data, colWidths=(130, 100, 70, 70, 80))
-
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0f5132")),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.lightgrey),
-        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.extend([table, Spacer(1, 24), Paragraph("Head Administrator Signature: _______________________", styles['Normal'])])
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
+conn = get_conn()
+PAGES = {
+    "dashboard": render_dashboard, "students": render_students, "grades": render_grades,
+    "report_card": render_report_card, "attendance": render_attendance, "conduct": render_conduct,
+    "payments": render_payments, "finance": render_finance, "reports": render_reports,
+    "staff": render_staff, "tasks": render_tasks, "chat": render_chat, "change_pwd": render_change_pwd
+}
+PAGES[active_page](conn, T)
+conn.close()
