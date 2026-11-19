@@ -1248,15 +1248,7 @@ if not latest_notifs.empty or not recent_msgs.empty:
             else:
                 for _, m in recent_msgs.iterrows():
                     st.warning(f"**To {m['recipient']}:** {m['subject']} *(from {m['sender_name']})*")
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS notifications (
-            notif_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            message TEXT,
-            created_by TEXT,
-            created_at TEXT
-        )
-    """)
+   
 
     # ---> PASTE THE EXPENSES TABLE RIGHT HERE <---
     c.execute("""
