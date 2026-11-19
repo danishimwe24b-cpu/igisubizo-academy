@@ -756,6 +756,49 @@ elif menu == "Report Cards":
         st.dataframe(class_students, use_container_width=True)
 
     conn.close()
+    # --- ADD THIS INSIDE GRADES & REPORT CARDS FOR STUDENT PROGRESS ---
+st.divider()
+st.subheader("📈 Individual Student Progress")
+
+prog_student_name = st.selectbox(
+    "Select Student to View Progress",
+    students["student_name"].tolist(),
+    key="prog_student_select"
+)
+prog_sid = int(students[students["student_name"] == prog_student_name].iloc[0]["student_id"])
+
+prog_df = pd.read_sql_query("""
+    SELECT date, term, subject, assessment_type, score, max_score,
+           ROUND((score * 100.0 / max_score), 1) AS percentage
+    FROM grades
+    WHERE student_id = ?
+    ORDER BY date ASC, grade_id ASC
+""", conn, params=(prog_sid,))
+
+if prog_df.empty:
+    st.info("No grades recorded yet for this student.")
+else:
+    # Key Progress Metrics
+    avg_pct = prog_df["percentage"].mean()
+    latest_pct = prog_df.iloc[-1]["percentage"]
+    first_pct = prog_df.iloc[0]["percentage"]
+    growth = latest_pct - first_pct
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Overall Average", f"{avg_pct:.1f}%")
+    m2.metric("Latest Assessment", f"{latest_pct:.1f}%", f"{growth:+.1f}% since first")
+    m3.metric("Total Assessments", len(prog_df))
+
+    # Line chart showing progress over time by subject
+    chart_df = prog_df.pivot_table(index="date", columns="subject", values="percentage", aggfunc="mean")
+    st.line_chart(chart_df)
+
+    # Subject-by-subject breakdown
+    st.write("**Subject Averages**")
+    subj_summary = prog_df.groupby("subject")["percentage"].agg(["count", "mean", "min", "max"]).reset_index()
+    subj_summary.columns = ["Subject", "Assessments", "Average (%)", "Lowest (%)", "Highest (%)"]
+    st.dataframe(subj_summary.round(1), use_container_width=True)
+
 
 # ====================== CODE OF CONDUCT ======================
 elif menu == "Code of Conduct":
