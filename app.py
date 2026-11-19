@@ -274,18 +274,24 @@ if menu == "Dashboard":
 elif menu == "Students":
     st.header("👥 Students Management")
     conn = get_conn()
-    tab1, tab2, tab3 = st.tabs(["Active Students", "Add Student", "Change Status"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Active Students", "Add Student", "Edit Student", "Change Status"])
 
     with tab1:
-        grade = st.selectbox("Filter by Class Level", ["All"] + CLASS_LEVELS)
+        grade = st.selectbox("Filter by Class Level", ["All"] + CLASS_LEVELS, key="stu_filter_grade")
         if grade == "All":
-            df = pd.read_sql_query("SELECT student_id, student_name, grade, gender, parent_name, parent_phone, status FROM students WHERE status='Active' ORDER BY grade, student_name", conn)
+            df = pd.read_sql_query(
+                "SELECT student_id, student_name, grade, gender, parent_name, parent_phone, parent_email, status FROM students WHERE status='Active' ORDER BY grade, student_name",
+                conn
+            )
         else:
-            df = pd.read_sql_query("SELECT student_id, student_name, grade, gender, parent_name, parent_phone, status FROM students WHERE grade=? AND status='Active' ORDER BY student_name", conn, params=(grade,))
+            df = pd.read_sql_query(
+                "SELECT student_id, student_name, grade, gender, parent_name, parent_phone, parent_email, status FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
+                conn, params=(grade,)
+            )
         st.dataframe(df, use_container_width=True)
 
     with tab2:
-        with st.form("add_student"):
+        with st.form("add_student_form", clear_on_submit=True):
             name = st.text_input("Student Full Name *")
             col1, col2 = st.columns(2)
             g = col1.selectbox("Class Level", CLASS_LEVELS)
@@ -293,27 +299,88 @@ elif menu == "Students":
             pname = st.text_input("Parent / Guardian Name")
             phone = st.text_input("Parent Phone")
             email = st.text_input("Parent Email")
-            if st.form_submit_button("Save Student") and name.strip():
-                conn.execute(
-                    "INSERT INTO students (student_name, grade, gender, parent_name, parent_phone, parent_email, status, created_at) VALUES (?,?,?,?,?,?,'Active',?)",
-                    (name.strip(), g, gender, pname.strip(), phone.strip(), email.strip(), str(datetime.date.today()))
-                )
-                conn.commit()
-                st.success("Student added successfully")
-                st.rerun()
+            if st.form_submit_button("💾 Save Student"):
+                if name.strip():
+                    conn.execute(
+                        "INSERT INTO students (student_name, grade, gender, parent_name, parent_phone, parent_email, status, created_at) VALUES (?,?,?,?,?,?,'Active',?)",
+                        (name.strip(), g, gender, pname.strip(), phone.strip(), email.strip(), str(datetime.date.today()))
+                    )
+                    conn.commit()
+                    st.success(f"Student **{name.strip()}** added successfully!")
+                    st.rerun()
+                else:
+                    st.error("Student Full Name is required.")
 
     with tab3:
+        st.subheader("✏️ Edit Student Information")
+        all_students = pd.read_sql_query(
+            "SELECT * FROM students ORDER BY grade, student_name", conn
+        )
+        if all_students.empty:
+            st.info("No students available to edit.")
+        else:
+            student_ids = all_students["student_id"].tolist()
+            student_labels = {
+                int(r["student_id"]): f"ID #{r['student_id']} - {r['student_name']} ({r['grade']})"
+                for _, r in all_students.iterrows()
+            }
+            selected_sid = st.selectbox(
+                "Select Student to Edit",
+                student_ids,
+                format_func=lambda x: student_labels[x],
+                key="edit_stu_selector"
+            )
+            stu = all_students[all_students["student_id"] == selected_sid].iloc[0]
+
+            # Dynamic form key forces fields to refresh whenever a different student is chosen
+            with st.form(key=f"edit_student_form_{selected_sid}"):
+                new_name = st.text_input("Student Full Name *", value=str(stu["student_name"] or ""))
+                c1, c2 = st.columns(2)
+                curr_grade = str(stu["grade"])
+                new_grade = c1.selectbox(
+                    "Class Level",
+                    CLASS_LEVELS,
+                    index=CLASS_LEVELS.index(curr_grade) if curr_grade in CLASS_LEVELS else 0
+                )
+                gender_opts = ["Male", "Female"]
+                curr_gender = str(stu["gender"])
+                new_gender = c2.selectbox(
+                    "Gender",
+                    gender_opts,
+                    index=gender_opts.index(curr_gender) if curr_gender in gender_opts else 0
+                )
+                new_pname = st.text_input("Parent / Guardian Name", value=str(stu["parent_name"] or ""))
+                new_phone = st.text_input("Parent Phone", value=str(stu["parent_phone"] or ""))
+                new_email = st.text_input("Parent Email", value=str(stu["parent_email"] or ""))
+
+                if st.form_submit_button("💾 Update Student Information", use_container_width=True):
+                    if new_name.strip():
+                        conn.execute("""
+                            UPDATE students
+                            SET student_name=?, grade=?, gender=?, parent_name=?, parent_phone=?, parent_email=?
+                            WHERE student_id=?
+                        """, (
+                            new_name.strip(), new_grade, new_gender,
+                            new_pname.strip(), new_phone.strip(), new_email.strip(),
+                            int(selected_sid)
+                        ))
+                        conn.commit()
+                        st.success(f"Updated **{new_name.strip()}** successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Student Full Name cannot be empty.")
+
+    with tab4:
         df = pd.read_sql_query("SELECT student_id, student_name, grade, status FROM students ORDER BY grade, student_name", conn)
         st.dataframe(df, use_container_width=True)
-        sid = st.number_input("Student ID", min_value=1, step=1)
-        new_status = st.selectbox("New Status", ["Active", "Inactive"])
+        sid = st.number_input("Student ID", min_value=1, step=1, key="status_stu_id")
+        new_status = st.selectbox("New Status", ["Active", "Inactive"], key="status_stu_val")
         if st.button("Update Status"):
             conn.execute("UPDATE students SET status=? WHERE student_id=?", (new_status, int(sid)))
             conn.commit()
             st.success("Status updated – Inactive students are removed from active lists")
             st.rerun()
     conn.close()
-
 # ====================== STAFF ======================
 elif menu == "Staff & Teachers":
     st.header("👨‍🏫 Staff & Teachers")
