@@ -244,203 +244,32 @@ if menu == "Dashboard":
     st.markdown("<div class='main-header'><h2>📊 Administration Dashboard</h2></div>", unsafe_allow_html=True)
     conn = get_conn()
 
-    # Guarantee required tables exist
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS expenses (
-            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            month_year TEXT NOT NULL,
-            category TEXT,
-            description TEXT,
-            amount REAL NOT NULL,
-            expense_date TEXT,
-            recorded_by TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS teacher_attendance (
-            t_att_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            staff_id INTEGER,
-            date TEXT,
-            status TEXT,
-            notes TEXT,
-            recorded_by TEXT
-        )
-    """)
-    conn.commit()
+    active_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc[0]["c"]
+    inactive_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc[0]["c"]
+    total_paid = pd.read_sql_query("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE status='Paid'", conn).iloc[0]["t"]
+    active_staff = pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc[0]["c"]
 
-    # 1. TOP OVERVIEW METRICS (No general all-time money total)
-    active_students = int(pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc[0]["c"])
-    inactive_students = int(pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc[0]["c"])
-    active_staff = int(pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc[0]["c"])
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Active Students", active_students)
+    c2.metric("Inactive Students", inactive_students)
+    c3.metric("Fees Collected", f"{total_paid:,.0f} RWF")
+    c4.metric("Active Staff", active_staff)
 
-    top1, top2, top3, top4 = st.columns(4)
-    top1.metric("Active Students", active_students)
-    top2.metric("Inactive Students", inactive_students)
-    top3.metric("Active Staff", active_staff)
-    top4.metric("Standard Fee / Student", f"{MONTHLY_FEE:,.0f} RWF")
-
-    st.divider()
-
-    # 2. MONTH SELECTOR & MONTHLY FEE COLLECTION vs REMAINING UNPAID
-    st.subheader("📅 Monthly Fee Collection & Remaining Unpaid Balance")
-
-    curr_ym = datetime.date.today().strftime("%Y-%m")
-    default_idx = PAYMENT_MONTHS.index(curr_ym) if curr_ym in PAYMENT_MONTHS else 0
-    selected_month = st.selectbox("Select Month", PAYMENT_MONTHS, index=default_idx, key="dash_month_sel")
-
-    expected_month = float(active_students * MONTHLY_FEE)
-    collected_month = float(pd.read_sql_query(
-        "SELECT COALESCE(SUM(amount), 0) as t FROM payments WHERE month_year=? AND status='Paid'",
-        conn, params=(selected_month,)
-    ).iloc[0]["t"])
-    remaining_unpaid_month = max(expected_month - collected_month, 0.0)
-    collection_pct = (collected_month / expected_month * 100.0) if expected_month > 0 else 0.0
-
-    fc1, fc2, fc3, fc4 = st.columns(4)
-    fc1.metric(f"Expected ({selected_month})", f"{expected_month:,.0f} RWF")
-    fc2.metric(f"Collected ({selected_month})", f"{collected_month:,.0f} RWF", f"{collection_pct:.1f}% collected")
-    fc3.metric(f"Remaining Unpaid ({selected_month})", f"{remaining_unpaid_month:,.0f} RWF")
-    fc4.metric("Students Paid", f"{int(collected_month // MONTHLY_FEE)} / {active_students}")
-
-    # TABLE 1: CLASS-BY-CLASS COLLECTION & REMAINING TABLE FOR SELECTED MONTH
-    st.markdown(f"**🏫 Class-by-Class Fee Collection & Remaining Table ({selected_month})**")
-    stu_by_class = pd.read_sql_query(
-        "SELECT grade AS Class, COUNT(*) AS Active_Students FROM students WHERE status='Active' GROUP BY grade",
-        conn
-    )
-    paid_by_class = pd.read_sql_query("""
-        SELECT s.grade AS Class,
-               COUNT(p.payment_id) AS Paid_Students,
-               COALESCE(SUM(p.amount), 0) AS Collected_Amount
-        FROM payments p
-        JOIN students s ON p.student_id = s.student_id
-        WHERE p.month_year = ? AND p.status = 'Paid' AND s.status = 'Active'
-        GROUP BY s.grade
-    """, conn, params=(selected_month,))
-
-    class_base = pd.DataFrame({"Class": CLASS_LEVELS})
-    class_tbl = class_base.merge(stu_by_class, on="Class", how="left").merge(paid_by_class, on="Class", how="left").fillna(0)
-    class_tbl["Active_Students"] = class_tbl["Active_Students"].astype(int)
-    class_tbl["Paid_Students"] = class_tbl["Paid_Students"].astype(int)
-    class_tbl["Expected_Amount"] = class_tbl["Active_Students"] * MONTHLY_FEE
-    class_tbl["Remaining_Amount"] = (class_tbl["Expected_Amount"] - class_tbl["Collected_Amount"]).clip(lower=0)
-
-    # Add Totals Row
-    totals_row = pd.DataFrame([{
-        "Class": "TOTAL",
-        "Active_Students": int(class_tbl["Active_Students"].sum()),
-        "Expected_Amount": float(class_tbl["Expected_Amount"].sum()),
-        "Paid_Students": int(class_tbl["Paid_Students"].sum()),
-        "Collected_Amount": float(class_tbl["Collected_Amount"].sum()),
-        "Remaining_Amount": float(class_tbl["Remaining_Amount"].sum())
-    }])
-    class_tbl_full = pd.concat([class_tbl, totals_row], ignore_index=True)
-
-    # Format currency columns cleanly
-    class_display = pd.DataFrame({
-        "Class": class_tbl_full["Class"],
-        "Active Students": class_tbl_full["Active_Students"],
-        "Expected Fees": class_tbl_full["Expected_Amount"].apply(lambda x: f"{x:,.0f} RWF"),
-        "Paid Students": class_tbl_full["Paid_Students"],
-        "Total Collected": class_tbl_full["Collected_Amount"].apply(lambda x: f"{x:,.0f} RWF"),
-        "Total Remaining": class_tbl_full["Remaining_Amount"].apply(lambda x: f"{x:,.0f} RWF")
-    })
-    st.dataframe(class_display, use_container_width=True, hide_index=True)
-
-    # TABLE 2: ALL RECORDED MONTHS — COLLECTED vs REMAINING UNPAID TABLE
-    st.markdown("**📆 All Months Summary: Total Collected vs. Total Remaining Unpaid**")
-    all_months_paid = pd.read_sql_query("""
-        SELECT month_year AS Month,
-               COUNT(payment_id) AS Paid_Students,
-               COALESCE(SUM(amount), 0) AS Collected
-        FROM payments
-        WHERE status = 'Paid'
-        GROUP BY month_year
-        ORDER BY month_year ASC
-    """, conn)
-
-    if all_months_paid.empty:
-        st.info("No paid student fees recorded yet.")
+    st.subheader("Students per Class Level")
+    df = pd.read_sql_query("SELECT grade, COUNT(*) as total FROM students WHERE status='Active' GROUP BY grade", conn)
+    if not df.empty:
+        st.bar_chart(df.set_index("grade"))
     else:
-        all_months_paid["Active Students"] = active_students
-        all_months_paid["Expected"] = active_students * MONTHLY_FEE
-        all_months_paid["Remaining"] = (all_months_paid["Expected"] - all_months_paid["Collected"]).clip(lower=0)
+        st.info("No active students yet")
 
-        months_col_display = pd.DataFrame({
-            "Month": all_months_paid["Month"],
-            "Active Students": all_months_paid["Active Students"],
-            "Expected Total": all_months_paid["Expected"].apply(lambda x: f"{x:,.0f} RWF"),
-            "Total Collected": all_months_paid["Collected"].apply(lambda x: f"{x:,.0f} RWF"),
-            "Total Remaining": all_months_paid["Remaining"].apply(lambda x: f"{x:,.0f} RWF")
-        })
-        st.dataframe(months_col_display, use_container_width=True, hide_index=True)
+    st.subheader("Recent Payments")
+    st.dataframe(pd.read_sql_query("""
+        SELECT s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date
+        FROM payments p JOIN students s ON p.student_id = s.student_id
+        ORDER BY p.payment_id DESC LIMIT 15
+    """, conn), use_container_width=True)
+    conn.close()
 
-    st.divider()
-
-    # 3. MONTHLY EXPENSES & AUTOMATIC SHARE SPLIT (÷ 2)
-    st.subheader(f"💰 Monthly Expenses & Automatic Share Split (÷ 2) — {selected_month}")
-
-    used_month = float(pd.read_sql_query(
-        "SELECT COALESCE(SUM(amount), 0) as t FROM expenses WHERE month_year=?",
-        conn, params=(selected_month,)
-    ).iloc[0]["t"])
-
-    total_shares_pool = collected_month - used_month
-    share_per_person = total_shares_pool / 2.0
-
-    s1, s2, s3, s4 = st.columns(4)
-    s1.metric(f"Collected ({selected_month})", f"{collected_month:,.0f} RWF")
-    s2.metric(f"Total Used ({selected_month})", f"{used_month:,.0f} RWF")
-    s3.metric("Net Remaining (Total Shares)", f"{total_shares_pool:,.0f} RWF")
-    s4.metric("Each Share (÷ 2)", f"{share_per_person:,.0f} RWF")
-
-    fin_col1, fin_col2 = st.columns([1, 1.6])
-
-    with fin_col1:
-        with st.form(key=f"add_expense_form_{selected_month}", clear_on_submit=True):
-            st.markdown(f"**➕ Record Expense for {selected_month}**")
-            exp_cat = st.selectbox("Category", [
-                "Salaries & Allowances", "Supplies & Chalk", "Utilities (Water/Power)",
-                "Maintenance", "Food / Kitchen", "Transport / Admin", "Other"
-            ])
-            exp_desc = st.text_input("Description (e.g., Chalk & Exercise Books)")
-            exp_amt = st.number_input("Amount Used (RWF)", min_value=0.0, step=500.0)
-            exp_date = st.date_input("Date", value=datetime.date.today())
-
-            if st.form_submit_button("💾 Save Expense", use_container_width=True):
-                if exp_amt > 0:
-                    conn.execute("""
-                        INSERT INTO expenses (month_year, category, description, amount, expense_date, recorded_by)
-                        VALUES (?,?,?,?,?,?)
-                    """, (selected_month, exp_cat, exp_desc.strip(), exp_amt, str(exp_date), st.session_state.user_name))
-                    conn.commit()
-                    st.success(f"Expense of {exp_amt:,.0f} RWF saved for {selected_month}!")
-                    st.rerun()
-                else:
-                    st.error("Please enter an amount greater than 0.")
-
-    with fin_col2:
-        st.markdown("**📊 Monthly Expenses & Automatic Share Split Table (All Months)**")
-        pay_by_m = pd.read_sql_query(
-            "SELECT month_year, COALESCE(SUM(amount), 0) AS Collected FROM payments WHERE status='Paid' GROUP BY month_year",
-            conn
-        )
-        exp_by_m = pd.read_sql_query(
-            "SELECT month_year, COALESCE(SUM(amount), 0) AS Used FROM expenses GROUP BY month_year",
-            conn
-        )
-
-        if pay_by_m.empty and exp_by_m.empty:
-            st.info("No payments or expenses recorded yet.")
-        else:
-            share_df = pd.merge(pay_by_m, exp_by_m, on="month_year", how="outer").fillna(0).sort_values("month_year")
-            share_df["Net Remaining (Shares)"] = share_df["Collected"] - share_df["Used"]
-            share_df["Each Share (÷ 2)"] = share_df["Net Remaining (Shares)"] / 2.0
-
-            share_display = pd.DataFrame({
-                "Month": share_df["month_year"],
-                "Total Collected": share_df["Collected"].apply(lambda x: f"{x:,.0f} RWF"),
-                "Total Used": share_df["Used"].apply(lambda x: f"{x:,.0f} RWF"),
 # ====================== STUDENTS ======================
 elif menu == "Students":
     st.header("👥 Students Management")
