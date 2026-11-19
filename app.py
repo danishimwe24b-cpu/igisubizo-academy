@@ -17,7 +17,7 @@ SUBJECT_LIST = ["English", "Kinyarwanda", "Mathematics", "SET", "SST", "French",
 ASSESSMENT_TYPES = ["Homework", "Exercise", "Quiz", "Exam", "Midterm"]
 
 PAYMENT_MONTHS = []
-for year in [2026, 2027, 2028, 2029, 2030]:
+for year in range(2026, 2031):
     start = 11 if year == 2026 else 1
     for m in range(start, 13):
         PAYMENT_MONTHS.append(f"{year}-{m:02d}")
@@ -26,15 +26,16 @@ PAYMENT_STATUS = ["Paid", "Not paid", "Late 5 days", "Late 5-10 days", "Late 15 
 MONTHLY_FEE = 5000
 
 # ====================== DATABASE ======================
+def get_conn():
+    return sqlite3.connect("igisubizo_academy.db", check_same_thread=False)
+
+def init_db():
+    conn = get_conn()
+    c = conn.cursor()
+
     c.execute("""
-        CREATE TABLE IF NOT EXISTS expenses (
-            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            month_year TEXT NOT NULL,
-            category TEXT,
-            description TEXT,
-            amount REAL NOT NULL,
-            expense_date TEXT,
-            recorded_by TEXT
+        CREATE TABLE IF NOT EXISTS students (
+
         )
     """)
 
