@@ -229,21 +229,52 @@ if menu == "Dashboard":
         else:
             existing_t_df = pd.read_sql_query(
 # ====================== PAGE SETUP ======================
+init_db()
+
+def ensure_all_tables():
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS expenses (
+            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_year TEXT NOT NULL,
+            category TEXT,
+            description TEXT,
+            amount REAL NOT NULL,
+            expense_date TEXT,
+            recorded_by TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS teacher_attendance (
+            t_att_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER,
+            date TEXT,
+            status TEXT,
+            notes TEXT,
+            recorded_by TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS language_skills (
+            skill_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER,
+            term TEXT,
+            language TEXT,
+            speaking TEXT,
+            reading TEXT,
+            writing TEXT,
+            teacher TEXT,
+            UNIQUE(student_id, term, language)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+ensure_all_tables()
+
+# ====================== PAGE SETUP ======================
 st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
 
-# Custom CSS with logo background attempt
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #0B6E4F 0%, #0A3D62 100%);
-        padding: 1.2rem;
-        border-radius: 12px;
-        color: white;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # ====================== SESSION ======================
 if "logged_in" not in st.session_state:
