@@ -950,28 +950,35 @@ elif menu == "Permission & Emergency":
                 conn.close()
                 st.success("Emergency report sent!")
 
-# ====================== NOTIFICATIONS ======================
-elif menu == "Notifications":
-    st.header("🔔 Notifications")
-    conn = get_conn()
+# ====================== TOP NOTIFICATION & MESSAGE BANNER ======================
+conn_banner = get_conn()
+latest_notifs = pd.read_sql_query(
+    "SELECT title, message, created_by, created_at FROM notifications ORDER BY notif_id DESC LIMIT 2",
+    conn_banner
+)
+recent_msgs = pd.read_sql_query(
+    "SELECT sender_name, recipient, subject, created_at FROM messages ORDER BY msg_id DESC LIMIT 3",
+    conn_banner
+)
+conn_banner.close()
 
-    if st.session_state.user_role == "Administration":
-        with st.form("notif_form"):
-            title = st.text_input("Title")
-            msg = st.text_area("Message to Teachers / Staff")
-            if st.form_submit_button("Send Notification"):
-                conn.execute(
-                    "INSERT INTO notifications (title, message, created_by, created_at) VALUES (?,?,?,?)",
-                    (title, msg, st.session_state.user_name, str(datetime.datetime.now()))
-                )
-                conn.commit()
-                st.success("Notification sent")
-                st.rerun()
-
-    st.subheader("All Notifications")
-    st.dataframe(pd.read_sql_query("SELECT * FROM notifications ORDER BY notif_id DESC", conn), use_container_width=True)
-    conn.close()
-
+if not latest_notifs.empty or not recent_msgs.empty:
+    with st.expander("🔔 Latest School Notifications & Recent Messages (Click to Review)", expanded=True):
+        col_n, col_m = st.columns(2)
+        with col_n:
+            st.markdown("**📢 Announcements**")
+            if latest_notifs.empty:
+                st.caption("No announcements yet.")
+            else:
+                for _, n in latest_notifs.iterrows():
+                    st.info(f"**{n['title']}** — {n['message']} *(by {n['created_by']})*")
+        with col_m:
+            st.markdown("**💬 Recent Messages / Permissions**")
+            if recent_msgs.empty:
+                st.caption("No recent messages.")
+            else:
+                for _, m in recent_msgs.iterrows():
+                    st.warning(f"**To {m['recipient']}:** {m['subject']} *(from {m['sender_name']})*")
 # ====================== MESSAGES ======================
 elif menu == "Messages":
     st.header("💬 Messages")
