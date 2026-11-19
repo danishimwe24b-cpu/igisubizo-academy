@@ -416,32 +416,86 @@ elif menu == "Grades":
 
 # ====================== ATTENDANCE ======================
 elif menu == "Attendance":
-    st.header("📅 Class Attendance")
+    st.header("📅 Daily Attendance")
     conn = get_conn()
-    grade = st.selectbox("Select Class Level", allowed_classes())
-    att_date = st.date_input("Date", datetime.date.today())
+    classes = allowed_classes()
+
+    col1, col2 = st.columns(2)
+    sel_class = col1.selectbox("Select Class", classes, key="att_class")
+    att_date = col2.date_input("Date", value=datetime.date.today(), key="att_date")
+    date_str = str(att_date)
+
     students = pd.read_sql_query(
         "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-        conn, params=(grade,)
+        conn, params=(sel_class,)
     )
 
     if students.empty:
-        st.warning("No active students")
+        st.warning("No active students in this class.")
     else:
-        with st.form("att_form"):
+        # Load existing attendance for this date so teachers can see/update it
+        existing = pd.read_sql_query(
+            "SELECT student_id, status, notes FROM attendance WHERE date=?",
+            conn, params=(date_str,)
+        ).set_index("student_id").to_dict("index")
+
+        with st.form("attendance_form"):
+            st.write(f"Recording attendance for **{sel_class}** on **{date_str}**")
             records = []
             for _, row in students.iterrows():
-                c1, c2 = st.columns([3, 2])
-                c1.write(f"**{row['student_name']}**")
-                status = c2.selectbox("Status", ["Present", "Absent", "Late", "Permission"], key=f"att{row['student_id']}")
-                records.append((row["student_id"], str(att_date), status, st.session_state.user_name, ""))
-            if st.form_submit_button("Save Attendance"):
-                conn.executemany("INSERT INTO attendance (student_id, date, status, teacher, notes) VALUES (?,?,?,?,?)", records)
-                conn.commit()
-                st.success("Attendance saved")
-                st.rerun()
-    conn.close()
+                sid = int(row["student_id"])
+                prev_status = existing.get(sid, {}).get("status", "Present")
+                prev_notes = existing.get(sid, {}).get("notes", "")
 
+                c1, c2, c3 = st.columns([3, 2, 3])
+                c1.write(f"**{row['student_name']}**")
+                status_opts = ["Present", "Absent", "Late", "Excused"]
+                status = c2.selectbox(
+                    "Status",
+                    status_opts,
+                    index=status_opts.index(prev_status) if prev_status in status_opts else 0,
+                    key=f"att_st_{sid}_{date_str}",
+                    label_visibility="collapsed"
+                )
+                notes = c3.text_input(
+                    "Notes",
+                    value=prev_notes or "",
+                    placeholder="Optional note...",
+                    key=f"att_nt_{sid}_{date_str}",
+                    label_visibility="collapsed"
+                )
+                records.append((sid, status, notes))
+
+            if st.form_submit_button("💾 Save Attendance", use_container_width=True):
+                c = conn.cursor()
+                for sid, status, notes in records:
+                    # Check if already recorded for this student on this date
+                    c.execute("SELECT attendance_id FROM attendance WHERE student_id=? AND date=?", (sid, date_str))
+                    found = c.fetchone()
+                    if found:
+                        c.execute(
+                            "UPDATE attendance SET status=?, notes=?, teacher=? WHERE attendance_id=?",
+                            (status, notes, st.session_state.user_name, found[0])
+                        )
+                    else:
+                        c.execute(
+                            "INSERT INTO attendance (student_id, date, status, teacher, notes) VALUES (?,?,?,?,?)",
+                            (sid, date_str, status, st.session_state.user_name, notes)
+                        )
+                conn.commit()
+                st.success(f"Attendance saved for {len(records)} students on {date_str}!")
+                st.rerun()
+
+        st.subheader("Attendance History for Class")
+        hist = pd.read_sql_query("""
+            SELECT a.date, s.student_name, a.status, a.notes, a.teacher
+            FROM attendance a
+            JOIN students s ON a.student_id = s.student_id
+            WHERE s.grade = ?
+            ORDER BY a.date DESC, s.student_name
+        """, conn, params=(sel_class,))
+        st.dataframe(hist, use_container_width=True)
+    conn.close()
 # ====================== PAYMENTS ======================
 elif menu == "Payments":
     st.header("💳 Payments")
