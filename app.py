@@ -1224,24 +1224,6 @@ if not latest_notifs.empty or not recent_msgs.empty:
             else:
                 for _, m in recent_msgs.iterrows():
                     st.warning(f"**To {m['recipient']}:** {m['subject']} *(from {m['sender_name']})*")
-   
-
-    # ---> PASTE THE EXPENSES TABLE RIGHT HERE <---
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS expenses (
-            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            month_year TEXT NOT NULL,
-            category TEXT,
-            description TEXT,
-            amount REAL NOT NULL,
-            expense_date TEXT,
-            recorded_by TEXT
-        )
-    """)
-
-    # Default Admin
-    c.execute("SELECT COUNT(*) FROM staff WHERE username='admin'")
-
 # ====================== MESSAGES ======================
 elif menu == "Messages":
     st.header("💬 Messages")
