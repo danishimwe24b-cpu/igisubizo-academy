@@ -511,43 +511,146 @@ elif menu == "Staff & Teachers":
 
 # ====================== GRADES ======================
 elif menu == "Grades":
-    st.header("📝 Grades & Progress")
+    st.header("📝 Grades, Totals & P1–P3 Language Skills")
     conn = get_conn()
     classes = allowed_classes()
     subjects = allowed_subjects()
 
-    grade = st.selectbox("Select Class Level", classes)
-    students = pd.read_sql_query(
-        "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-        conn, params=(grade,)
-    )
+    tab1, tab2, tab3 = st.tabs([
+        "Record Assessment Scores",
+        "P1–P3 Speaking, Reading & Writing",
+        "Student Auto-Totals & Progress"
+    ])
 
-    if students.empty:
-        st.warning("No active students in this class")
-    else:
-        with st.form("grade_form"):
-            smap = dict(zip(students["student_name"], students["student_id"]))
-            student = st.selectbox("Student", list(smap.keys()))
-            subject = st.selectbox("Subject", subjects)
-            assess = st.selectbox("Assessment Type", ASSESSMENT_TYPES)
-            score = st.number_input("Score", 0.0, 100.0, 70.0)
-            term = st.selectbox("Term", ["Term 1", "Term 2", "Term 3"])
-            if st.form_submit_button("Save Grade"):
-                conn.execute(
-                    "INSERT INTO grades (student_id, subject, assessment_type, score, max_score, term, date, teacher) VALUES (?,?,?,?,100,?,?,?)",
-                    (smap[student], subject, assess, score, term, str(datetime.date.today()), st.session_state.user_name)
-                )
-                conn.commit()
-                st.success("Grade saved")
-                st.rerun()
+    with tab1:
+        c1, c2, c3, c4 = st.columns(4)
+        sel_class = c1.selectbox("Class Level", classes, key="gr_class")
+        sel_subj = c2.selectbox("Subject", subjects, key="gr_subj")
+        sel_term = c3.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="gr_term")
+        sel_type = c4.selectbox("Assessment Type", ASSESSMENT_TYPES, key="gr_type")
 
-        st.dataframe(pd.read_sql_query("""
-            SELECT g.date, s.student_name, g.subject, g.assessment_type, g.score, g.term, g.teacher
-            FROM grades g JOIN students s ON g.student_id = s.student_id
-            WHERE s.grade = ? ORDER BY g.grade_id DESC LIMIT 40
-        """, conn, params=(grade,)), use_container_width=True)
+        col_m, col_d = st.columns(2)
+        max_score = col_m.number_input("Out Of (Maximum Marks)", min_value=1.0, value=20.0, step=1.0, key="gr_max")
+        assess_date = col_d.date_input("Assessment Date", value=datetime.date.today(), key="gr_date")
+
+        students = pd.read_sql_query(
+            "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
+            conn, params=(sel_class,)
+        )
+
+        if students.empty:
+            st.warning("No active students in this class.")
+        else:
+            with st.form(key=f"grades_entry_{sel_class}_{sel_subj}_{sel_term}"):
+                st.write(f"Enter marks out of **{max_score:.0f}** for **{sel_class} — {sel_subj} ({sel_type})**")
+                entries = []
+                for _, row in students.iterrows():
+                    sid = int(row["student_id"])
+                    sc1, sc2 = st.columns([3, 2])
+                    sc1.write(f"**{row['student_name']}**")
+                    val = sc2.number_input(
+                        f"Score / {max_score:.0f}",
+                        min_value=0.0,
+                        max_value=float(max_score),
+                        value=0.0,
+                        step=0.5,
+                        key=f"sc_{sid}_{sel_subj}_{sel_type}",
+                        label_visibility="collapsed"
+                    )
+                    entries.append((sid, val))
+
+                if st.form_submit_button("💾 Save All Assessment Scores", use_container_width=True):
+                    cur = conn.cursor()
+                    for sid, val in entries:
+                        cur.execute("""
+                            INSERT INTO grades (student_id, subject, assessment_type, score, max_score, term, date, teacher)
+                            VALUES (?,?,?,?,?,?,?,?)
+                        """, (sid, sel_subj, sel_type, val, max_score, sel_term, str(assess_date), st.session_state.user_name))
+                    conn.commit()
+                    st.success(f"Saved {len(entries)} scores ({sel_subj} - {sel_type})! Totals updated automatically.")
+                    st.rerun()
+
+    with tab2:
+        st.subheader("🗣️ P1, P2 & P3 Language Skills (Speaking, Reading & Writing)")
+        lower_classes = [c for c in classes if c.startswith(("P1", "P2", "P3"))]
+        if not lower_classes:
+            st.info("This tab applies to P1, P2, and P3 classes.")
+        else:
+            lc1, lc2, lc3 = st.columns(3)
+            l_class = lc1.selectbox("Select P1–P3 Class", lower_classes, key="lang_cls")
+            l_term = lc2.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="lang_term")
+            l_lang = lc3.selectbox("Language", ["English", "Kinyarwanda"], key="lang_choice")
+
+            l_students = pd.read_sql_query(
+                "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
+                conn, params=(l_class,)
+            )
+            skill_levels = ["Excellent", "Very Good", "Good", "Needs Improvement"]
+
+            if l_students.empty:
+                st.warning("No active students in this class.")
+            else:
+                with st.form(key=f"lang_skills_{l_class}_{l_term}_{l_lang}"):
+                    skill_rows = []
+                    for _, srow in l_students.iterrows():
+                        sid = int(srow["student_id"])
+                        c_name, c_sp, c_rd, c_wr = st.columns([2.5, 1.5, 1.5, 1.5])
+                        c_name.write(f"**{srow['student_name']}**")
+                        sp = c_sp.selectbox("Speaking", skill_levels, key=f"sp_{sid}_{l_lang}_{l_term}")
+                        rd = c_rd.selectbox("Reading", skill_levels, key=f"rd_{sid}_{l_lang}_{l_term}")
+                        wr = c_wr.selectbox("Writing", skill_levels, key=f"wr_{sid}_{l_lang}_{l_term}")
+                        skill_rows.append((sid, sp, rd, wr))
+
+                    if st.form_submit_button("💾 Save Language Skills", use_container_width=True):
+                        cur = conn.cursor()
+                        for sid, sp, rd, wr in skill_rows:
+                            cur.execute("""
+                                INSERT INTO language_skills (student_id, term, language, speaking, reading, writing, teacher)
+                                VALUES (?,?,?,?,?,?,?)
+                                ON CONFLICT(student_id, term, language)
+                                DO UPDATE SET speaking=excluded.speaking, reading=excluded.reading, writing=excluded.writing, teacher=excluded.teacher
+                            """, (sid, l_term, l_lang, sp, rd, wr, st.session_state.user_name))
+                        conn.commit()
+                        st.success(f"Saved {l_lang} skills for {l_class} ({l_term})!")
+                        st.rerun()
+
+    with tab3:
+        st.subheader("📊 Automatic Subject Totals & Student Progress")
+        p_c1, p_c2 = st.columns(2)
+        p_class = p_c1.selectbox("Class", classes, key="tot_cls")
+        p_term = p_c2.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="tot_term")
+
+        p_students = pd.read_sql_query(
+            "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
+            conn, params=(p_class,)
+        )
+        if not p_students.empty:
+            sel_p_stu = st.selectbox("Select Student", p_students["student_name"].tolist(), key="tot_stu")
+            psid = int(p_students[p_students["student_name"] == sel_p_stu].iloc["student_id"])
+
+            tot_df = pd.read_sql_query("""
+                SELECT subject AS Subject,
+                       COUNT(*) AS Assessments,
+                       SUM(score) AS Total_Score,
+                       SUM(max_score) AS Total_Out_Of,
+                       ROUND(SUM(score) * 100.0 / SUM(max_score), 1) AS Percentage
+                FROM grades
+                WHERE student_id=? AND term=?
+                GROUP BY subject
+            """, conn, params=(psid, p_term))
+
+            if tot_df.empty:
+                st.info("No assessments recorded yet for this student in this term.")
+            else:
+                tot_df["Result"] = tot_df.apply(lambda r: f"{r['Total_Score']:.1f} / {r['Total_Out_Of']:.1f}", axis=1)
+                st.dataframe(tot_df[["Subject", "Assessments", "Result", "Percentage"]], use_container_width=True)
+
+                raw_prog = pd.read_sql_query("""
+                    SELECT date, subject, ROUND(score * 100.0 / max_score, 1) AS pct
+                    FROM grades WHERE student_id=? AND term=? ORDER BY date ASC
+                """, conn, params=(psid, p_term))
+                st.line_chart(raw_prog.pivot_table(index="date", columns="subject", values="pct", aggfunc="mean"))
     conn.close()
-
 # ====================== ATTENDANCE ======================
 elif menu == "Attendance":
     st.header("📅 Daily Attendance")
