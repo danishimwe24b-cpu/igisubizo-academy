@@ -25,115 +25,37 @@ for year in [2026, 2027, 2028, 2029, 2030]:
 PAYMENT_STATUS = ["Paid", "Not paid", "Late 5 days", "Late 5-10 days", "Late 15 days", "Bonus", "Drop out"]
 MONTHLY_FEE = 5000
 
-# ====================== DATABASE ======================
-def get_conn():
-    return sqlite3.connect("igisubizo_academy.db", check_same_thread=False)
 
-def init_db():
+# ====================== DASHBOARD ======================
+if menu == "Dashboard":
+    st.markdown("<div class='main-header'><h2>📊 Administration Dashboard</h2></div>", unsafe_allow_html=True)
     conn = get_conn()
-    c = conn.cursor()
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            student_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_name TEXT NOT NULL,
-            grade TEXT NOT NULL,
-            gender TEXT DEFAULT 'Male',
-            parent_name TEXT,
-            parent_phone TEXT,
-            parent_email TEXT,
-            status TEXT DEFAULT 'Active',
-            created_at TEXT
-        )
-    """)
+    active_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc[0]["c"]
+    inactive_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc[0]["c"]
+    total_paid = pd.read_sql_query("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE status='Paid'", conn).iloc[0]["t"]
+    active_staff = pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc[0]["c"]
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS grades (
-            grade_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            subject TEXT,
-            assessment_type TEXT,
-            score REAL,
-            max_score REAL DEFAULT 100,
-            term TEXT,
-            date TEXT,
-            teacher TEXT
-        )
-    """)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Active Students", active_students)
+    c2.metric("Inactive Students", inactive_students)
+    c3.metric("Fees Collected", f"{total_paid:,.0f} RWF")
+    c4.metric("Active Staff", active_staff)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS attendance (
-            attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            date TEXT,
-            status TEXT,
-            teacher TEXT,
-            notes TEXT
-        )
-    """)
+    st.subheader("Students per Class Level")
+    df = pd.read_sql_query("SELECT grade, COUNT(*) as total FROM students WHERE status='Active' GROUP BY grade", conn)
+    if not df.empty:
+        st.bar_chart(df.set_index("grade"))
+    else:
+        st.info("No active students yet")
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS payments (
-            payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            month_year TEXT,
-            amount REAL DEFAULT 5000,
-            status TEXT DEFAULT 'Not paid',
-            paid_date TEXT,
-            recorded_by TEXT,
-            UNIQUE(student_id, month_year)
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS staff (
-            staff_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name TEXT,
-            role TEXT,
-            username TEXT UNIQUE,
-            password TEXT,
-            phone TEXT,
-            assigned_classes TEXT DEFAULT 'ALL',
-            assigned_subjects TEXT DEFAULT 'ALL',
-            status TEXT DEFAULT 'Active'
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            msg_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sender_name TEXT,
-            sender_role TEXT,
-            recipient TEXT,
-            subject TEXT,
-            message TEXT,
-            created_at TEXT
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS notifications (
-            notif_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            message TEXT,
-            created_by TEXT,
-            created_at TEXT
-        )
-    """)
-
-    # Default Admin
-    c.execute("SELECT COUNT(*) FROM staff WHERE username='admin'")
-    if c.fetchone()[0] == 0:
-        c.execute("""
-            INSERT INTO staff (full_name, role, username, password, phone, assigned_classes, assigned_subjects, status)
-            VALUES ('Head Administrator', 'Administration', 'admin', 'admin123', '0780000000', 'ALL', 'ALL', 'Active')
-        """)
-
-    conn.commit()
+    st.subheader("Recent Payments")
+    st.dataframe(pd.read_sql_query("""
+        SELECT s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date
+        FROM payments p JOIN students s ON p.student_id = s.student_id
+        ORDER BY p.payment_id DESC LIMIT 15
+    """, conn), use_container_width=True)
     conn.close()
-
-init_db()
-
 # ====================== PAGE SETUP ======================
 st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
 
