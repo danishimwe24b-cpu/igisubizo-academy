@@ -512,6 +512,14 @@ if menu == "Dashboard":
         teachers = pd.read_sql_query(
             "SELECT staff_id, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'",
             conn
+          with tab_perf:
+        st.subheader("Automatic Weekly Teacher Performance Evaluation (Last 7 Days)")
+        st.caption("Scored automatically: Teacher Attendance (30%) + Student Attendance Logged (25%) + Grades Recorded (25%) + Weekly Reports Sent (20%).")
+
+        week_ago = str(datetime.date.today() - datetime.timedelta(days=7))
+        teachers = pd.read_sql_query(
+            "SELECT staff_id, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'",
+            conn
         )
 
         if teachers.empty:
@@ -522,32 +530,28 @@ if menu == "Dashboard":
                 t_id = int(t["staff_id"])
                 t_name = t["full_name"]
 
-                # 1. Teacher Attendance (out of 5 school days = 30 pts)
                 t_present = int(pd.read_sql_query(
                     "SELECT COUNT(*) as c FROM teacher_attendance WHERE staff_id=? AND date>=? AND status='Present'",
                     conn, params=(t_id, week_ago)
-                ).iloc["c"])
+                ).iloc[0]["c"])
                 t_att_pts = min((t_present / 5.0) * 30.0, 30.0)
 
-                # 2. Student Attendance Recorded this week (out of 5 days = 25 pts)
                 s_att_days = int(pd.read_sql_query(
                     "SELECT COUNT(DISTINCT date) as c FROM attendance WHERE teacher=? AND date>=?",
                     conn, params=(t_name, week_ago)
-                ).iloc["c"])
+                ).iloc[0]["c"])
                 s_att_pts = min((s_att_days / 5.0) * 25.0, 25.0)
 
-                # 3. Student Grades Recorded this week (target 10+ entries = 25 pts)
                 gr_count = int(pd.read_sql_query(
                     "SELECT COUNT(*) as c FROM grades WHERE teacher=? AND date>=?",
                     conn, params=(t_name, week_ago)
-                ).iloc["c"])
+                ).iloc[0]["c"])
                 gr_pts = min((gr_count / 10.0) * 25.0, 25.0)
 
-                # 4. Weekly Report / Messages submitted (at least 1 report = 20 pts)
                 rep_count = int(pd.read_sql_query(
                     "SELECT COUNT(*) as c FROM messages WHERE sender_name=? AND substr(created_at,1,10)>=?",
                     conn, params=(t_name, week_ago)
-                ).iloc["c"])
+                ).iloc[0]["c"])
                 rep_pts = 20.0 if rep_count >= 1 else 0.0
 
                 total_score = round(t_att_pts + s_att_pts + gr_pts + rep_pts, 1)
@@ -560,7 +564,7 @@ if menu == "Dashboard":
                 else:
                     rating = "🔻 Needs Follow-up"
 
-                               perf_rows.append({
+                perf_rows.append({
                     "Teacher": t_name,
                     "Classes": t["assigned_classes"],
                     "Teacher Present": f"{t_present}/5 days",
