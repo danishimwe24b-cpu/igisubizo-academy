@@ -318,7 +318,9 @@ elif menu == "Students":
 elif menu == "Staff & Teachers":
     st.header("👨‍🏫 Staff & Teachers")
     conn = get_conn()
-    tab1, tab2, tab3 = st.tabs(["Create Account", "Assign Classes & Subjects", "Manage Accounts"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "Create Account", "Edit Staff / Teacher", "Assign Classes & Subjects", "Manage Accounts"
+    ])
 
     with tab1:
         with st.form("create_staff"):
@@ -339,10 +341,58 @@ elif menu == "Staff & Teachers":
                     )
                     conn.commit()
                     st.success(f"Account created → Username: `{uname}` | Password: `{pwd}`")
-                except:
+                except sqlite3.IntegrityError:
                     st.error("Username already exists")
 
     with tab2:
+        st.subheader("✏️ Edit Staff / Teacher Details")
+        staff_df = pd.read_sql_query("SELECT * FROM staff ORDER BY full_name", conn)
+        if staff_df.empty:
+            st.info("No staff accounts found.")
+        else:
+            staff_map = {
+                f"{r['full_name']} (@{r['username']} - {r['role']})": r
+                for _, r in staff_df.iterrows()
+            }
+            sel_staff_label = st.selectbox("Select Staff Member to Edit", list(staff_map.keys()), key="edit_stf_sel")
+            stf = staff_map[sel_staff_label]
+
+            with st.form("edit_staff_form"):
+                ed_name = st.text_input("Full Name *", value=stf["full_name"] or "")
+                role_opts = ["Teacher", "Register Officer", "Administration"]
+                ed_role = st.selectbox(
+                    "Role",
+                    role_opts,
+                    index=role_opts.index(stf["role"]) if stf["role"] in role_opts else 0
+                )
+                ed_uname = st.text_input("Username *", value=stf["username"] or "")
+                ed_phone = st.text_input("Phone", value=stf["phone"] or "")
+
+                curr_cls = [c.strip() for c in (stf["assigned_classes"] or "").split(",") if c.strip() in CLASS_LEVELS]
+                curr_sub = [s.strip() for s in (stf["assigned_subjects"] or "").split(",") if s.strip() in SUBJECT_LIST]
+
+                ed_classes = st.multiselect("Assigned Classes", CLASS_LEVELS, default=curr_cls)
+                ed_subjects = st.multiselect("Assigned Subjects", SUBJECT_LIST, default=curr_sub)
+
+                if st.form_submit_button("💾 Save Staff Changes") and ed_name.strip() and ed_uname.strip():
+                    cls_val = ",".join(ed_classes) if ed_classes else "ALL"
+                    sub_val = ",".join(ed_subjects) if ed_subjects else "ALL"
+                    try:
+                        conn.execute("""
+                            UPDATE staff
+                            SET full_name=?, role=?, username=?, phone=?, assigned_classes=?, assigned_subjects=?
+                            WHERE staff_id=?
+                        """, (
+                            ed_name.strip(), ed_role, ed_uname.strip(), ed_phone.strip(),
+                            cls_val, sub_val, int(stf["staff_id"])
+                        ))
+                        conn.commit()
+                        st.success("Staff details updated successfully!")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("That username is already taken by another account.")
+
+    with tab3:
         tdf = pd.read_sql_query("SELECT username, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'", conn)
         st.dataframe(tdf, use_container_width=True)
         if not tdf.empty:
@@ -356,7 +406,7 @@ elif menu == "Staff & Teachers":
                 st.success("Updated")
                 st.rerun()
 
-    with tab3:
+    with tab4:
         sdf = pd.read_sql_query("SELECT staff_id, full_name, role, username, status FROM staff", conn)
         st.dataframe(sdf, use_container_width=True)
         sid = st.number_input("Staff ID", min_value=1, step=1)
