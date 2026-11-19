@@ -560,11 +560,23 @@ if menu == "Dashboard":
                 else:
                     rating = "🔻 Needs Follow-up"
 
-                perf_rows.append({
+                               perf_rows.append({
                     "Teacher": t_name,
                     "Classes": t["assigned_classes"],
                     "Teacher Present": f"{t_present}/5 days",
                     "Student Att. Logged": f"{s_att_days}/5 days",
+                    "Grades Logged": gr_count,
+                    "Weekly Reports": rep_count,
+                    "Performance Score": f"{total_score}%",
+                    "Numeric_Score": total_score,
+                    "Rating": rating
+                })
+
+            perf_df = pd.DataFrame(perf_rows).sort_values(by="Numeric_Score", ascending=False)
+            top_teacher = perf_df.iloc[0]
+            st.success(f"🥇 **Top Performing Teacher This Week:** {top_teacher['Teacher']} ({top_teacher['Performance Score']} — {top_teacher['Rating']})")
+            st.dataframe(perf_df.drop(columns=["Numeric_Score"]), use_container_width=True, hide_index=True)
+
 
 
 # ====================== STUDENTS ======================
