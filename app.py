@@ -17,14 +17,7 @@ SUBJECT_LIST = ["English", "Kinyarwanda", "Mathematics", "SET", "SST", "French",
 ASSESSMENT_TYPES = ["Homework", "Exercise", "Quiz", "Exam", "Midterm"]
 
 PAYMENT_MONTHS = []
-for year in range(2026, 2031):
-    start = 11 if year == 2026 else 1
-    for m in range(start, 13):
-        PAYMENT_MONTHS.append(f"{year}-{m:02d}")
-
-        PAYMENT_MONTHS.append(f"{year}-{m:02d}")
-
-
+for year in [2026, 2027, 2028, 2029, 2030]:
     start = 11 if year == 2026 else 1
     for m in range(start, 13):
         PAYMENT_MONTHS.append(f"{year}-{m:02d}")
@@ -128,43 +121,6 @@ def init_db():
         )
     """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS expenses (
-            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            month_year TEXT NOT NULL,
-            category TEXT,
-            description TEXT,
-            amount REAL NOT NULL,
-            expense_date TEXT,
-            recorded_by TEXT
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS teacher_attendance (
-            t_att_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            staff_id INTEGER,
-            date TEXT,
-            status TEXT,
-            notes TEXT,
-            recorded_by TEXT
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS language_skills (
-            skill_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            term TEXT,
-            language TEXT,
-            speaking TEXT,
-            reading TEXT,
-            writing TEXT,
-            teacher TEXT,
-            UNIQUE(student_id, term, language)
-        )
-    """)
-
     # Default Admin
     c.execute("SELECT COUNT(*) FROM staff WHERE username='admin'")
     if c.fetchone()[0] == 0:
@@ -181,52 +137,19 @@ init_db()
 # ====================== PAGE SETUP ======================
 st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
 
-init_db()
-
-def ensure_all_tables():
-    conn = get_conn()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS expenses (
-            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            month_year TEXT NOT NULL,
-            category TEXT,
-            description TEXT,
-            amount REAL NOT NULL,
-            expense_date TEXT,
-            recorded_by TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS teacher_attendance (
-            t_att_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            staff_id INTEGER,
-            date TEXT,
-            status TEXT,
-            notes TEXT,
-            recorded_by TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS language_skills (
-            skill_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            term TEXT,
-            language TEXT,
-            speaking TEXT,
-            reading TEXT,
-            writing TEXT,
-            teacher TEXT,
-            UNIQUE(student_id, term, language)
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-ensure_all_tables()
-
-# ====================== PAGE SETUP ======================
-st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
-
+# Custom CSS with logo background attempt
+st.markdown("""
+<style>
+    .main-header {
+        background: linear-gradient(90deg, #0B6E4F 0%, #0A3D62 100%);
+        padding: 1.2rem;
+        border-radius: 12px;
+        color: white;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ====================== SESSION ======================
 if "logged_in" not in st.session_state:
@@ -271,46 +194,6 @@ if not st.session_state.logged_in:
                 else:
                     st.error("Invalid credentials or role")
     st.stop()
-def ensure_all_tables():
-    conn = get_conn()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS expenses (
-            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            month_year TEXT NOT NULL,
-            category TEXT,
-            description TEXT,
-            amount REAL NOT NULL,
-            expense_date TEXT,
-            recorded_by TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS teacher_attendance (
-            t_att_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            staff_id INTEGER,
-            date TEXT,
-            status TEXT,
-            notes TEXT,
-            recorded_by TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS language_skills (
-            skill_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            term TEXT,
-            language TEXT,
-            speaking TEXT,
-            reading TEXT,
-            writing TEXT,
-            teacher TEXT,
-            UNIQUE(student_id, term, language)
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-ensure_all_tables()
 
 # ====================== SIDEBAR ======================
 with st.sidebar:
@@ -361,245 +244,48 @@ if menu == "Dashboard":
     st.markdown("<div class='main-header'><h2>📊 Administration Dashboard</h2></div>", unsafe_allow_html=True)
     conn = get_conn()
 
-    # Guarantee required tables exist in the live database
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS expenses (
-            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            month_year TEXT NOT NULL,
-            category TEXT,
-            description TEXT,
-            amount REAL NOT NULL,
-            expense_date TEXT,
-            recorded_by TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS teacher_attendance (
-            t_att_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            staff_id INTEGER,
-            date TEXT,
-            status TEXT,
-            notes TEXT,
-            recorded_by TEXT
-        )
-    """)
-    conn.commit()
+    active_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc[0]["c"]
+    inactive_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc[0]["c"]
+    total_paid = pd.read_sql_query("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE status='Paid'", conn).iloc[0]["t"]
+    active_staff = pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc[0]["c"]
 
-    # 1. TOP SCHOOL OVERVIEW METRICS
-    active_students = int(pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc["c"])
-    inactive_students = int(pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc["c"])
-    active_staff = int(pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc["c"])
-    total_all_time_fees = float(pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as t FROM payments WHERE status='Paid'", conn).iloc["t"])
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Active Students", active_students)
+    c2.metric("Inactive Students", inactive_students)
+    c3.metric("Fees Collected", f"{total_paid:,.0f} RWF")
+    c4.metric("Active Staff", active_staff)
 
-    top1, top2, top3, top4 = st.columns(4)
-    top1.metric("Active Students", active_students)
-    top2.metric("Inactive Students", inactive_students)
-    top3.metric("Active Staff", active_staff)
-    top4.metric("All-Time Collected", f"{total_all_time_fees:,.0f} RWF")
+    st.subheader("Students per Class Level")
+    df = pd.read_sql_query("SELECT grade, COUNT(*) as total FROM students WHERE status='Active' GROUP BY grade", conn)
+    if not df.empty:
+        st.bar_chart(df.set_index("grade"))
+    else:
+        st.info("No active students yet")
 
-    st.divider()
-
-    # 2. MONTHLY FEES, EXPENSES & AUTOMATIC SHARE SPLIT (÷ 2)
-    st.subheader("💰 Monthly Fees, Expenses & Automatic Share Split (÷ 2)")
-
-    curr_ym = datetime.date.today().strftime("%Y-%m")
-    default_idx = PAYMENT_MONTHS.index(curr_ym) if curr_ym in PAYMENT_MONTHS else 0
-    selected_month = st.selectbox("Select Month to Inspect", PAYMENT_MONTHS, index=default_idx, key="dash_month_sel")
-
-    collected_month = float(pd.read_sql_query(
-        "SELECT COALESCE(SUM(amount), 0) as t FROM payments WHERE month_year=? AND status='Paid'",
-        conn, params=(selected_month,)
-    ).iloc["t"])
-
-    used_month = float(pd.read_sql_query(
-        "SELECT COALESCE(SUM(amount), 0) as t FROM expenses WHERE month_year=?",
-        conn, params=(selected_month,)
-    ).iloc["t"])
-
-    total_shares_pool = collected_month - used_month
-    share_per_person = total_shares_pool / 2.0
-
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric(f"Collected ({selected_month})", f"{collected_month:,.0f} RWF")
-    m2.metric(f"Total Used ({selected_month})", f"{used_month:,.0f} RWF")
-    m3.metric("Remaining (Total Shares)", f"{total_shares_pool:,.0f} RWF")
-    m4.metric("Each Share (÷ 2)", f"{share_per_person:,.0f} RWF")
-
-    fin_col1, fin_col2 = st.columns([1, 1.6])
-
-    with fin_col1:
-        with st.form(key=f"add_expense_form_{selected_month}", clear_on_submit=True):
-            st.markdown(f"**➕ Record Expense for {selected_month}**")
-            exp_cat = st.selectbox("Category", [
-                "Salaries & Allowances", "Supplies & Chalk", "Utilities (Water/Power)",
-                "Maintenance", "Food / Kitchen", "Transport / Admin", "Other"
-            ])
-            exp_desc = st.text_input("Description (e.g., Chalk & Exercise Books)")
-            exp_amt = st.number_input("Amount Used (RWF)", min_value=0.0, step=500.0)
-            exp_date = st.date_input("Date", value=datetime.date.today())
-
-            if st.form_submit_button("💾 Save Expense", use_container_width=True):
-                if exp_amt > 0:
-                    conn.execute("""
-                        INSERT INTO expenses (month_year, category, description, amount, expense_date, recorded_by)
-                        VALUES (?,?,?,?,?,?)
-                    """, (selected_month, exp_cat, exp_desc.strip(), exp_amt, str(exp_date), st.session_state.user_name))
-                    conn.commit()
-                    st.success(f"Expense of {exp_amt:,.0f} RWF saved for {selected_month}!")
-                    st.rerun()
-                else:
-                    st.error("Please enter an amount greater than 0.")
-
-    with fin_col2:
-        st.markdown("**📅 Automatic Monthly Financial Summary (All Recorded Months)**")
-        pay_by_m = pd.read_sql_query(
-            "SELECT month_year, COALESCE(SUM(amount), 0) AS Collected FROM payments WHERE status='Paid' GROUP BY month_year",
-            conn
-        )
-        exp_by_m = pd.read_sql_query(
-            "SELECT month_year, COALESCE(SUM(amount), 0) AS Used FROM expenses GROUP BY month_year",
-            conn
-        )
-
-        if pay_by_m.empty and exp_by_m.empty:
-            st.info("No payments or expenses recorded yet.")
-        else:
-            summary_df = pd.merge(pay_by_m, exp_by_m, on="month_year", how="outer").fillna(0)
-            summary_df = summary_df.sort_values("month_year")
-            summary_df["Total Shares (Remaining)"] = summary_df["Collected"] - summary_df["Used"]
-            summary_df["Each Share (÷ 2)"] = summary_df["Total Shares (Remaining)"] / 2.0
-
-            display_df = summary_df.copy()
-            for col in ["Collected", "Used", "Total Shares (Remaining)", "Each Share (÷ 2)"]:
-                display_df[col] = display_df[col].apply(lambda x: f"{x:,.0f} RWF")
-            display_df.rename(columns={"month_year": "Month"}, inplace=True)
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    # Itemized Expenses & Delete Option for Selected Month
-    month_exp_df = pd.read_sql_query(
-        "SELECT expense_id, expense_date, category, description, amount, recorded_by FROM expenses WHERE month_year=? ORDER BY expense_id DESC",
-        conn, params=(selected_month,)
-    )
-    if not month_exp_df.empty:
-        with st.expander(f"📋 Itemized Expenses for {selected_month} ({len(month_exp_df)} items)"):
-            st.dataframe(month_exp_df, use_container_width=True, hide_index=True)
-            del_col1, del_col2 = st.columns([2, 1])
-            del_exp_id = del_col1.selectbox(
-                "Select Expense ID to Remove (if entered by mistake)",
-                month_exp_df["expense_id"].tolist(),
-                key=f"del_exp_sel_{selected_month}"
-            )
-            if del_col2.button("🗑️ Delete Expense", key=f"del_exp_btn_{selected_month}"):
-                conn.execute("DELETE FROM expenses WHERE expense_id=?", (int(del_exp_id),))
-                conn.commit()
-                st.success(f"Deleted expense #{del_exp_id}.")
-                st.rerun()
-
-    st.divider()
-
-    # 3. TEACHER PERFORMANCE, TEACHER ATTENDANCE & CLASS OVERVIEW TABS
-    tab_perf, tab_t_att, tab_overview = st.tabs([
-        "🏆 Weekly Teacher Performance Ranking",
-        "🕒 Record Teacher Attendance",
-        "📈 Classes & Recent Payments"
-    ])
-
-    with tab_perf:
-        st.subheader("Automatic Weekly Teacher Performance Evaluation (Last 7 Days)")
-        st.caption("Scored automatically: Teacher Attendance (30%) + Student Attendance Recorded (25%) + Grades Recorded (25%) + Weekly Reports Sent (20%).")
-]
-week_ago = str(datetime.date.today() - datetime.timedelta(days=7))
-        teachers = pd.read_sql_query(
-            "SELECT staff_id, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'",
-            conn
-        )
-
-        week_ago = str(datetime.date.today() - datetime.timedelta(days=7))
-        teachers = pd.read_sql_query("SELECT staff_id, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'", conn)
-
-        if teachers.empty:
-            st.info("No active teachers registered yet.")
-        else:
-            perf_rows = []
-            for _, t in teachers.iterrows():
-                t_id = int(t["staff_id"])
-                t_name = t["full_name"]
-
-                t_present = int(pd.read_sql_query(
-                    "SELECT COUNT(*) as c FROM teacher_attendance WHERE staff_id=? AND date>=? AND status='Present'",
-                    conn, params=(t_id, week_ago)
-                ).iloc[0]["c"])
-                t_att_pts = min((t_present / 5.0) * 30.0, 30.0)
-
-                s_att_days = int(pd.read_sql_query(
-                    "SELECT COUNT(DISTINCT date) as c FROM attendance WHERE teacher=? AND date>=?",
-                    conn, params=(t_name, week_ago)
-                ).iloc[0]["c"])
-                s_att_pts = min((s_att_days / 5.0) * 25.0, 25.0)
-
-                gr_count = int(pd.read_sql_query(
-                    "SELECT COUNT(*) as c FROM grades WHERE teacher=? AND date>=?",
-                    conn, params=(t_name, week_ago)
-                ).iloc[0]["c"])
-                gr_pts = min((gr_count / 10.0) * 25.0, 25.0)
-
-                rep_count = int(pd.read_sql_query(
-                    "SELECT COUNT(*) as c FROM messages WHERE sender_name=? AND substr(created_at,1,10)>=?",
-                    conn, params=(t_name, week_ago)
-                ).iloc[0]["c"])
-                rep_pts = 20.0 if rep_count >= 1 else 0.0
-
-                total_score = round(t_att_pts + s_att_pts + gr_pts + rep_pts, 1)
-                if total_score >= 85:
-                    rating = "🌟 Excellent"
-                elif total_score >= 65:
-                    rating = "✅ Good"
-                elif total_score >= 45:
-                    rating = "⚠️ Fair"
-                else:
-                    rating = "🔻 Needs Follow-up"
-
-                perf_rows.append({
-                    "Teacher": t_name,
-                    "Classes": t["assigned_classes"],
-                    "Teacher Present": f"{t_present}/5 days",
-                    "Student Att. Logged": f"{s_att_days}/5 days",
-                    "Grades Logged": gr_count,
-                    "Weekly Reports": rep_count,
-                    "Performance Score": f"{total_score}%",
-                    "Numeric_Score": total_score,
-                    "Rating": rating
-                })
-
-            perf_df = pd.DataFrame(perf_rows).sort_values(by="Numeric_Score", ascending=False)
-            top_teacher = perf_df.iloc[0]
-            st.success(f"🥇 **Top Performing Teacher This Week:** {top_teacher['Teacher']} ({top_teacher['Performance Score']} — {top_teacher['Rating']})")
-            st.dataframe(perf_df.drop(columns=["Numeric_Score"]), use_container_width=True, hide_index=True)
-
-
+    st.subheader("Recent Payments")
+    st.dataframe(pd.read_sql_query("""
+        SELECT s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date
+        FROM payments p JOIN students s ON p.student_id = s.student_id
+        ORDER BY p.payment_id DESC LIMIT 15
+    """, conn), use_container_width=True)
+    conn.close()
 
 # ====================== STUDENTS ======================
 elif menu == "Students":
     st.header("👥 Students Management")
     conn = get_conn()
-    tab1, tab2, tab3, tab4 = st.tabs(["Active Students", "Add Student", "Edit Student", "Change Status"])
+    tab1, tab2, tab3 = st.tabs(["Active Students", "Add Student", "Change Status"])
 
     with tab1:
-        grade = st.selectbox("Filter by Class Level", ["All"] + CLASS_LEVELS, key="stu_filter_grade")
+        grade = st.selectbox("Filter by Class Level", ["All"] + CLASS_LEVELS)
         if grade == "All":
-            df = pd.read_sql_query(
-                "SELECT student_id, student_name, grade, gender, parent_name, parent_phone, parent_email, status FROM students WHERE status='Active' ORDER BY grade, student_name",
-                conn
-            )
+            df = pd.read_sql_query("SELECT student_id, student_name, grade, gender, parent_name, parent_phone, status FROM students WHERE status='Active' ORDER BY grade, student_name", conn)
         else:
-            df = pd.read_sql_query(
-                "SELECT student_id, student_name, grade, gender, parent_name, parent_phone, parent_email, status FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-                conn, params=(grade,)
-            )
+            df = pd.read_sql_query("SELECT student_id, student_name, grade, gender, parent_name, parent_phone, status FROM students WHERE grade=? AND status='Active' ORDER BY student_name", conn, params=(grade,))
         st.dataframe(df, use_container_width=True)
 
     with tab2:
-        with st.form("add_student_form", clear_on_submit=True):
+        with st.form("add_student"):
             name = st.text_input("Student Full Name *")
             col1, col2 = st.columns(2)
             g = col1.selectbox("Class Level", CLASS_LEVELS)
@@ -607,98 +293,35 @@ elif menu == "Students":
             pname = st.text_input("Parent / Guardian Name")
             phone = st.text_input("Parent Phone")
             email = st.text_input("Parent Email")
-            if st.form_submit_button("💾 Save Student"):
-                if name.strip():
-                    conn.execute(
-                        "INSERT INTO students (student_name, grade, gender, parent_name, parent_phone, parent_email, status, created_at) VALUES (?,?,?,?,?,?,'Active',?)",
-                        (name.strip(), g, gender, pname.strip(), phone.strip(), email.strip(), str(datetime.date.today()))
-                    )
-                    conn.commit()
-                    st.success(f"Student **{name.strip()}** added successfully!")
-                    st.rerun()
-                else:
-                    st.error("Student Full Name is required.")
+            if st.form_submit_button("Save Student") and name.strip():
+                conn.execute(
+                    "INSERT INTO students (student_name, grade, gender, parent_name, parent_phone, parent_email, status, created_at) VALUES (?,?,?,?,?,?,'Active',?)",
+                    (name.strip(), g, gender, pname.strip(), phone.strip(), email.strip(), str(datetime.date.today()))
+                )
+                conn.commit()
+                st.success("Student added successfully")
+                st.rerun()
 
     with tab3:
-        st.subheader("✏️ Edit Student Information")
-        all_students = pd.read_sql_query(
-            "SELECT * FROM students ORDER BY grade, student_name", conn
-        )
-        if all_students.empty:
-            st.info("No students available to edit.")
-        else:
-            student_ids = all_students["student_id"].tolist()
-            student_labels = {
-                int(r["student_id"]): f"ID #{r['student_id']} - {r['student_name']} ({r['grade']})"
-                for _, r in all_students.iterrows()
-            }
-            selected_sid = st.selectbox(
-                "Select Student to Edit",
-                student_ids,
-                format_func=lambda x: student_labels[x],
-                key="edit_stu_selector"
-            )
-            stu = all_students[all_students["student_id"] == selected_sid].iloc[0]
-
-            # Dynamic form key forces fields to refresh whenever a different student is chosen
-            with st.form(key=f"edit_student_form_{selected_sid}"):
-                new_name = st.text_input("Student Full Name *", value=str(stu["student_name"] or ""))
-                c1, c2 = st.columns(2)
-                curr_grade = str(stu["grade"])
-                new_grade = c1.selectbox(
-                    "Class Level",
-                    CLASS_LEVELS,
-                    index=CLASS_LEVELS.index(curr_grade) if curr_grade in CLASS_LEVELS else 0
-                )
-                gender_opts = ["Male", "Female"]
-                curr_gender = str(stu["gender"])
-                new_gender = c2.selectbox(
-                    "Gender",
-                    gender_opts,
-                    index=gender_opts.index(curr_gender) if curr_gender in gender_opts else 0
-                )
-                new_pname = st.text_input("Parent / Guardian Name", value=str(stu["parent_name"] or ""))
-                new_phone = st.text_input("Parent Phone", value=str(stu["parent_phone"] or ""))
-                new_email = st.text_input("Parent Email", value=str(stu["parent_email"] or ""))
-
-                if st.form_submit_button("💾 Update Student Information", use_container_width=True):
-                    if new_name.strip():
-                        conn.execute("""
-                            UPDATE students
-                            SET student_name=?, grade=?, gender=?, parent_name=?, parent_phone=?, parent_email=?
-                            WHERE student_id=?
-                        """, (
-                            new_name.strip(), new_grade, new_gender,
-                            new_pname.strip(), new_phone.strip(), new_email.strip(),
-                            int(selected_sid)
-                        ))
-                        conn.commit()
-                        st.success(f"Updated **{new_name.strip()}** successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Student Full Name cannot be empty.")
-
-    with tab4:
         df = pd.read_sql_query("SELECT student_id, student_name, grade, status FROM students ORDER BY grade, student_name", conn)
         st.dataframe(df, use_container_width=True)
-        sid = st.number_input("Student ID", min_value=1, step=1, key="status_stu_id")
-        new_status = st.selectbox("New Status", ["Active", "Inactive"], key="status_stu_val")
+        sid = st.number_input("Student ID", min_value=1, step=1)
+        new_status = st.selectbox("New Status", ["Active", "Inactive"])
         if st.button("Update Status"):
             conn.execute("UPDATE students SET status=? WHERE student_id=?", (new_status, int(sid)))
             conn.commit()
             st.success("Status updated – Inactive students are removed from active lists")
             st.rerun()
     conn.close()
+
 # ====================== STAFF ======================
 elif menu == "Staff & Teachers":
-    st.header("👨‍🏫 Staff & Teachers")
+    st.header("👨🏫 Staff & Teachers")
     conn = get_conn()
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Create Account", "Edit Staff / Teacher", "Assign Classes & Subjects", "Manage Accounts"
-    ])
+    tab1, tab2, tab3 = st.tabs(["Create Account", "Assign Classes & Subjects", "Manage Accounts"])
 
     with tab1:
-        with st.form("create_staff_form", clear_on_submit=True):
+        with st.form("create_staff"):
             name = st.text_input("Full Name *")
             role = st.selectbox("Role", ["Teacher", "Register Officer", "Administration"])
             uname = st.text_input("Username *")
@@ -706,89 +329,26 @@ elif menu == "Staff & Teachers":
             phone = st.text_input("Phone")
             classes = st.multiselect("Assigned Classes (Teachers)", CLASS_LEVELS)
             subjects = st.multiselect("Assigned Subjects (Teachers)", SUBJECT_LIST)
-            if st.form_submit_button("Create Account"):
-                if name.strip() and uname.strip():
-                    cls = ",".join(classes) if classes else "ALL"
-                    sub = ",".join(subjects) if subjects else "ALL"
-                    try:
-                        conn.execute(
-                            "INSERT INTO staff (full_name, role, username, password, phone, assigned_classes, assigned_subjects, status) VALUES (?,?,?,?,?,?,?,'Active')",
-                            (name.strip(), role, uname.strip(), pwd.strip(), phone.strip(), cls, sub)
-                        )
-                        conn.commit()
-                        st.success(f"Account created → Username: `{uname.strip()}` | Password: `{pwd.strip()}`")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.error("Username already exists.")
-                else:
-                    st.error("Full Name and Username are required.")
+            if st.form_submit_button("Create Account") and name and uname:
+                cls = ",".join(classes) if classes else "ALL"
+                sub = ",".join(subjects) if subjects else "ALL"
+                try:
+                    conn.execute(
+                        "INSERT INTO staff (full_name, role, username, password, phone, assigned_classes, assigned_subjects, status) VALUES (?,?,?,?,?,?,?,'Active')",
+                        (name.strip(), role, uname.strip(), pwd.strip(), phone.strip(), cls, sub)
+                    )
+                    conn.commit()
+                    st.success(f"Account created → Username: `{uname}` | Password: `{pwd}`")
+                except:
+                    st.error("Username already exists")
 
     with tab2:
-        st.subheader("✏️ Edit Staff / Teacher Details")
-        staff_df = pd.read_sql_query("SELECT * FROM staff ORDER BY full_name", conn)
-        if staff_df.empty:
-            st.info("No staff accounts found.")
-        else:
-            staff_ids = staff_df["staff_id"].tolist()
-            staff_labels = {
-                int(r["staff_id"]): f"ID #{r['staff_id']} - {r['full_name']} (@{r['username']} | {r['role']})"
-                for _, r in staff_df.iterrows()
-            }
-            selected_staff_id = st.selectbox(
-                "Select Staff Member to Edit",
-                staff_ids,
-                format_func=lambda x: staff_labels[x],
-                key="edit_staff_selector"
-            )
-            stf = staff_df[staff_df["staff_id"] == selected_staff_id].iloc[0]
-
-            # Dynamic form key ensures all fields reload accurately for each staff member
-            with st.form(key=f"edit_staff_form_{selected_staff_id}"):
-                ed_name = st.text_input("Full Name *", value=str(stf["full_name"] or ""))
-                role_opts = ["Teacher", "Register Officer", "Administration"]
-                curr_role = str(stf["role"])
-                ed_role = st.selectbox(
-                    "Role",
-                    role_opts,
-                    index=role_opts.index(curr_role) if curr_role in role_opts else 0
-                )
-                ed_uname = st.text_input("Username *", value=str(stf["username"] or ""))
-                ed_phone = st.text_input("Phone", value=str(stf["phone"] or ""))
-
-                curr_cls = [c.strip() for c in str(stf["assigned_classes"] or "").split(",") if c.strip() in CLASS_LEVELS]
-                curr_sub = [s.strip() for s in str(stf["assigned_subjects"] or "").split(",") if s.strip() in SUBJECT_LIST]
-
-                ed_classes = st.multiselect("Assigned Classes", CLASS_LEVELS, default=curr_cls)
-                ed_subjects = st.multiselect("Assigned Subjects", SUBJECT_LIST, default=curr_sub)
-
-                if st.form_submit_button("💾 Update Staff Details", use_container_width=True):
-                    if ed_name.strip() and ed_uname.strip():
-                        cls_val = ",".join(ed_classes) if ed_classes else "ALL"
-                        sub_val = ",".join(ed_subjects) if ed_subjects else "ALL"
-                        try:
-                            conn.execute("""
-                                UPDATE staff
-                                SET full_name=?, role=?, username=?, phone=?, assigned_classes=?, assigned_subjects=?
-                                WHERE staff_id=?
-                            """, (
-                                ed_name.strip(), ed_role, ed_uname.strip(), ed_phone.strip(),
-                                cls_val, sub_val, int(selected_staff_id)
-                            ))
-                            conn.commit()
-                            st.success(f"Updated **{ed_name.strip()}** successfully!")
-                            st.rerun()
-                        except sqlite3.IntegrityError:
-                            st.error("That username is already taken by another account.")
-                    else:
-                        st.error("Full Name and Username cannot be empty.")
-
-    with tab3:
         tdf = pd.read_sql_query("SELECT username, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'", conn)
         st.dataframe(tdf, use_container_width=True)
         if not tdf.empty:
-            sel = st.selectbox("Select Teacher", tdf["username"].tolist(), key="assign_teacher_sel")
-            new_cls = st.multiselect("Classes", CLASS_LEVELS, key="assign_cls")
-            new_sub = st.multiselect("Subjects", SUBJECT_LIST, key="assign_sub")
+            sel = st.selectbox("Select Teacher", tdf["username"].tolist())
+            new_cls = st.multiselect("Classes", CLASS_LEVELS)
+            new_sub = st.multiselect("Subjects", SUBJECT_LIST)
             if st.button("Update Assignment"):
                 conn.execute("UPDATE staff SET assigned_classes=?, assigned_subjects=? WHERE username=?",
                              (",".join(new_cls) if new_cls else "NONE", ",".join(new_sub) if new_sub else "NONE", sel))
@@ -796,12 +356,12 @@ elif menu == "Staff & Teachers":
                 st.success("Updated")
                 st.rerun()
 
-    with tab4:
+    with tab3:
         sdf = pd.read_sql_query("SELECT staff_id, full_name, role, username, status FROM staff", conn)
         st.dataframe(sdf, use_container_width=True)
-        sid = st.number_input("Staff ID", min_value=1, step=1, key="manage_staff_id")
-        new_pwd = st.text_input("New Password", value="123456", key="manage_staff_pwd")
-        new_stat = st.selectbox("Status", ["Active", "Inactive"], key="manage_staff_stat")
+        sid = st.number_input("Staff ID", min_value=1, step=1)
+        new_pwd = st.text_input("New Password", value="123456")
+        new_stat = st.selectbox("Status", ["Active", "Inactive"])
         c1, c2 = st.columns(2)
         if c1.button("Update Password & Status"):
             conn.execute("UPDATE staff SET password=?, status=? WHERE staff_id=?", (new_pwd, new_stat, int(sid)))
@@ -814,148 +374,46 @@ elif menu == "Staff & Teachers":
             st.success("Deleted if inactive")
             st.rerun()
     conn.close()
+
 # ====================== GRADES ======================
 elif menu == "Grades":
-    st.header("📝 Grades, Totals & P1–P3 Language Skills")
+    st.header("📝 Grades & Progress")
     conn = get_conn()
     classes = allowed_classes()
     subjects = allowed_subjects()
 
-    tab1, tab2, tab3 = st.tabs([
-        "Record Assessment Scores",
-        "P1–P3 Speaking, Reading & Writing",
-        "Student Auto-Totals & Progress"
-    ])
+    grade = st.selectbox("Select Class Level", classes)
+    students = pd.read_sql_query(
+        "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
+        conn, params=(grade,)
+    )
 
-    with tab1:
-        c1, c2, c3, c4 = st.columns(4)
-        sel_class = c1.selectbox("Class Level", classes, key="gr_class")
-        sel_subj = c2.selectbox("Subject", subjects, key="gr_subj")
-        sel_term = c3.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="gr_term")
-        sel_type = c4.selectbox("Assessment Type", ASSESSMENT_TYPES, key="gr_type")
+    if students.empty:
+        st.warning("No active students in this class")
+    else:
+        with st.form("grade_form"):
+            smap = dict(zip(students["student_name"], students["student_id"]))
+            student = st.selectbox("Student", list(smap.keys()))
+            subject = st.selectbox("Subject", subjects)
+            assess = st.selectbox("Assessment Type", ASSESSMENT_TYPES)
+            score = st.number_input("Score", 0.0, 100.0, 70.0)
+            term = st.selectbox("Term", ["Term 1", "Term 2", "Term 3"])
+            if st.form_submit_button("Save Grade"):
+                conn.execute(
+                    "INSERT INTO grades (student_id, subject, assessment_type, score, max_score, term, date, teacher) VALUES (?,?,?,?,100,?,?,?)",
+                    (smap[student], subject, assess, score, term, str(datetime.date.today()), st.session_state.user_name)
+                )
+                conn.commit()
+                st.success("Grade saved")
+                st.rerun()
 
-        col_m, col_d = st.columns(2)
-        max_score = col_m.number_input("Out Of (Maximum Marks)", min_value=1.0, value=20.0, step=1.0, key="gr_max")
-        assess_date = col_d.date_input("Assessment Date", value=datetime.date.today(), key="gr_date")
-
-        students = pd.read_sql_query(
-            "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-            conn, params=(sel_class,)
-        )
-
-        if students.empty:
-            st.warning("No active students in this class.")
-        else:
-            with st.form(key=f"grades_entry_{sel_class}_{sel_subj}_{sel_term}"):
-                st.write(f"Enter marks out of **{max_score:.0f}** for **{sel_class} — {sel_subj} ({sel_type})**")
-                entries = []
-                for _, row in students.iterrows():
-                    sid = int(row["student_id"])
-                    sc1, sc2 = st.columns([3, 2])
-                    sc1.write(f"**{row['student_name']}**")
-                    val = sc2.number_input(
-                        f"Score / {max_score:.0f}",
-                        min_value=0.0,
-                        max_value=float(max_score),
-                        value=0.0,
-                        step=0.5,
-                        key=f"sc_{sid}_{sel_subj}_{sel_type}",
-                        label_visibility="collapsed"
-                    )
-                    entries.append((sid, val))
-
-                if st.form_submit_button("💾 Save All Assessment Scores", use_container_width=True):
-                    cur = conn.cursor()
-                    for sid, val in entries:
-                        cur.execute("""
-                            INSERT INTO grades (student_id, subject, assessment_type, score, max_score, term, date, teacher)
-                            VALUES (?,?,?,?,?,?,?,?)
-                        """, (sid, sel_subj, sel_type, val, max_score, sel_term, str(assess_date), st.session_state.user_name))
-                    conn.commit()
-                    st.success(f"Saved {len(entries)} scores ({sel_subj} - {sel_type})! Totals updated automatically.")
-                    st.rerun()
-
-    with tab2:
-        st.subheader("🗣️ P1, P2 & P3 Language Skills (Speaking, Reading & Writing)")
-        lower_classes = [c for c in classes if c.startswith(("P1", "P2", "P3"))]
-        if not lower_classes:
-            st.info("This tab applies to P1, P2, and P3 classes.")
-        else:
-            lc1, lc2, lc3 = st.columns(3)
-            l_class = lc1.selectbox("Select P1–P3 Class", lower_classes, key="lang_cls")
-            l_term = lc2.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="lang_term")
-            l_lang = lc3.selectbox("Language", ["English", "Kinyarwanda"], key="lang_choice")
-
-            l_students = pd.read_sql_query(
-                "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-                conn, params=(l_class,)
-            )
-            skill_levels = ["Excellent", "Very Good", "Good", "Needs Improvement"]
-
-            if l_students.empty:
-                st.warning("No active students in this class.")
-            else:
-                with st.form(key=f"lang_skills_{l_class}_{l_term}_{l_lang}"):
-                    skill_rows = []
-                    for _, srow in l_students.iterrows():
-                        sid = int(srow["student_id"])
-                        c_name, c_sp, c_rd, c_wr = st.columns([2.5, 1.5, 1.5, 1.5])
-                        c_name.write(f"**{srow['student_name']}**")
-                        sp = c_sp.selectbox("Speaking", skill_levels, key=f"sp_{sid}_{l_lang}_{l_term}")
-                        rd = c_rd.selectbox("Reading", skill_levels, key=f"rd_{sid}_{l_lang}_{l_term}")
-                        wr = c_wr.selectbox("Writing", skill_levels, key=f"wr_{sid}_{l_lang}_{l_term}")
-                        skill_rows.append((sid, sp, rd, wr))
-
-                    if st.form_submit_button("💾 Save Language Skills", use_container_width=True):
-                        cur = conn.cursor()
-                        for sid, sp, rd, wr in skill_rows:
-                            cur.execute("""
-                                INSERT INTO language_skills (student_id, term, language, speaking, reading, writing, teacher)
-                                VALUES (?,?,?,?,?,?,?)
-                                ON CONFLICT(student_id, term, language)
-                                DO UPDATE SET speaking=excluded.speaking, reading=excluded.reading, writing=excluded.writing, teacher=excluded.teacher
-                            """, (sid, l_term, l_lang, sp, rd, wr, st.session_state.user_name))
-                        conn.commit()
-                        st.success(f"Saved {l_lang} skills for {l_class} ({l_term})!")
-                        st.rerun()
-
-    with tab3:
-        st.subheader("📊 Automatic Subject Totals & Student Progress")
-        p_c1, p_c2 = st.columns(2)
-        p_class = p_c1.selectbox("Class", classes, key="tot_cls")
-        p_term = p_c2.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="tot_term")
-
-        p_students = pd.read_sql_query(
-            "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-            conn, params=(p_class,)
-        )
-        if not p_students.empty:
-            sel_p_stu = st.selectbox("Select Student", p_students["student_name"].tolist(), key="tot_stu")
-            psid = int(p_students[p_students["student_name"] == sel_p_stu].iloc["student_id"])
-
-            tot_df = pd.read_sql_query("""
-                SELECT subject AS Subject,
-                       COUNT(*) AS Assessments,
-                       SUM(score) AS Total_Score,
-                       SUM(max_score) AS Total_Out_Of,
-                       ROUND(SUM(score) * 100.0 / SUM(max_score), 1) AS Percentage
-                FROM grades
-                WHERE student_id=? AND term=?
-                GROUP BY subject
-            """, conn, params=(psid, p_term))
-
-            if tot_df.empty:
-                st.info("No assessments recorded yet for this student in this term.")
-            else:
-                tot_df["Result"] = tot_df.apply(lambda r: f"{r['Total_Score']:.1f} / {r['Total_Out_Of']:.1f}", axis=1)
-                st.dataframe(tot_df[["Subject", "Assessments", "Result", "Percentage"]], use_container_width=True)
-
-                raw_prog = pd.read_sql_query("""
-                    SELECT date, subject, ROUND(score * 100.0 / max_score, 1) AS pct
-                    FROM grades WHERE student_id=? AND term=? ORDER BY date ASC
-                """, conn, params=(psid, p_term))
-                st.line_chart(raw_prog.pivot_table(index="date", columns="subject", values="pct", aggfunc="mean"))
+        st.dataframe(pd.read_sql_query("""
+            SELECT g.date, s.student_name, g.subject, g.assessment_type, g.score, g.term, g.teacher
+            FROM grades g JOIN students s ON g.student_id = s.student_id
+            WHERE s.grade = ? ORDER BY g.grade_id DESC LIMIT 40
+        """, conn, params=(grade,)), use_container_width=True)
     conn.close()
+
 # ====================== ATTENDANCE ======================
 elif menu == "Attendance":
     st.header("📅 Daily Attendance")
@@ -1361,35 +819,28 @@ elif menu == "Permission & Emergency":
                 conn.close()
                 st.success("Emergency report sent!")
 
-# ====================== TOP NOTIFICATION & MESSAGE BANNER ======================
-conn_banner = get_conn()
-latest_notifs = pd.read_sql_query(
-    "SELECT title, message, created_by, created_at FROM notifications ORDER BY notif_id DESC LIMIT 2",
-    conn_banner
-)
-recent_msgs = pd.read_sql_query(
-    "SELECT sender_name, recipient, subject, created_at FROM messages ORDER BY msg_id DESC LIMIT 3",
-    conn_banner
-)
-conn_banner.close()
+# ====================== NOTIFICATIONS ======================
+elif menu == "Notifications":
+    st.header("🔔 Notifications")
+    conn = get_conn()
 
-if not latest_notifs.empty or not recent_msgs.empty:
-    with st.expander("🔔 Latest School Notifications & Recent Messages (Click to Review)", expanded=True):
-        col_n, col_m = st.columns(2)
-        with col_n:
-            st.markdown("**📢 Announcements**")
-            if latest_notifs.empty:
-                st.caption("No announcements yet.")
-            else:
-                for _, n in latest_notifs.iterrows():
-                    st.info(f"**{n['title']}** — {n['message']} *(by {n['created_by']})*")
-        with col_m:
-            st.markdown("**💬 Recent Messages / Permissions**")
-            if recent_msgs.empty:
-                st.caption("No recent messages.")
-            else:
-                for _, m in recent_msgs.iterrows():
-                    st.warning(f"**To {m['recipient']}:** {m['subject']} *(from {m['sender_name']})*")
+    if st.session_state.user_role == "Administration":
+        with st.form("notif_form"):
+            title = st.text_input("Title")
+            msg = st.text_area("Message to Teachers / Staff")
+            if st.form_submit_button("Send Notification"):
+                conn.execute(
+                    "INSERT INTO notifications (title, message, created_by, created_at) VALUES (?,?,?,?)",
+                    (title, msg, st.session_state.user_name, str(datetime.datetime.now()))
+                )
+                conn.commit()
+                st.success("Notification sent")
+                st.rerun()
+
+    st.subheader("All Notifications")
+    st.dataframe(pd.read_sql_query("SELECT * FROM notifications ORDER BY notif_id DESC", conn), use_container_width=True)
+    conn.close()
+
 # ====================== MESSAGES ======================
 elif menu == "Messages":
     st.header("💬 Messages")
