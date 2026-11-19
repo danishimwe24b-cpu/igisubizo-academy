@@ -241,7 +241,8 @@ def allowed_subjects():
 
 # ====================== DASHBOARD ======================
 
-elif menu == "Dashboard":
+if menu == "Dashboard":
+
     st.markdown("<div class='main-header'><h2>📊 Administration Dashboard & Monthly Financial Shares</h2></div>", unsafe_allow_html=True)
     conn = get_conn()
 
