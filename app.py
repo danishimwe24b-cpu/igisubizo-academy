@@ -116,6 +116,46 @@ if not st.session_state.logged_in:
                 else:
                     st.error("Invalid credentials or role")
     st.stop()
+def ensure_all_tables():
+    conn = get_conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS expenses (
+            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_year TEXT NOT NULL,
+            category TEXT,
+            description TEXT,
+            amount REAL NOT NULL,
+            expense_date TEXT,
+            recorded_by TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS teacher_attendance (
+            t_att_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER,
+            date TEXT,
+            status TEXT,
+            notes TEXT,
+            recorded_by TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS language_skills (
+            skill_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER,
+            term TEXT,
+            language TEXT,
+            speaking TEXT,
+            reading TEXT,
+            writing TEXT,
+            teacher TEXT,
+            UNIQUE(student_id, term, language)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+ensure_all_tables()
 
 # ====================== SIDEBAR ======================
 with st.sidebar:
