@@ -433,11 +433,12 @@ elif menu == "Attendance":
     if students.empty:
         st.warning("No active students in this class.")
     else:
-        # Load existing attendance for this date so teachers can see/update it
-        existing = pd.read_sql_query(
-            "SELECT student_id, status, notes FROM attendance WHERE date=?",
+        # Load existing attendance safely (drop_duplicates prevents ValueError if old duplicates exist)
+        existing_df = pd.read_sql_query(
+            "SELECT student_id, status, notes FROM attendance WHERE date=? ORDER BY attendance_id ASC",
             conn, params=(date_str,)
-        ).set_index("student_id").to_dict("index")
+        ).drop_duplicates(subset=["student_id"], keep="last")
+        existing = existing_df.set_index("student_id").to_dict("index")
 
         with st.form("attendance_form"):
             st.write(f"Recording attendance for **{sel_class}** on **{date_str}**")
@@ -447,7 +448,7 @@ elif menu == "Attendance":
                 prev_status = existing.get(sid, {}).get("status", "Present")
                 prev_notes = existing.get(sid, {}).get("notes", "")
 
-                c1, c2, c3 = st.columns([3, 2, 3])
+                c1, c2, c3 = st.columns([2, 1.5, 2.5])
                 c1.write(f"**{row['student_name']}**")
                 status_opts = ["Present", "Absent", "Late", "Excused"]
                 status = c2.selectbox(
@@ -469,13 +470,23 @@ elif menu == "Attendance":
             if st.form_submit_button("💾 Save Attendance", use_container_width=True):
                 c = conn.cursor()
                 for sid, status, notes in records:
-                    # Check if already recorded for this student on this date
-                    c.execute("SELECT attendance_id FROM attendance WHERE student_id=? AND date=?", (sid, date_str))
-                    found = c.fetchone()
-                    if found:
+                    # Clean up any old duplicate rows for this student & date, then insert/update cleanly
+                    c.execute(
+                        "SELECT attendance_id FROM attendance WHERE student_id=? AND date=? ORDER BY attendance_id ASC",
+                        (sid, date_str)
+                    )
+                    rows = c.fetchall()
+                    if rows:
+                        keep_id = rows[-1][0]
+                        # Delete extra duplicates if any existed
+                        if len(rows) > 1:
+                            c.execute(
+                                "DELETE FROM attendance WHERE student_id=? AND date=? AND attendance_id != ?",
+                                (sid, date_str, keep_id)
+                            )
                         c.execute(
                             "UPDATE attendance SET status=?, notes=?, teacher=? WHERE attendance_id=?",
-                            (status, notes, st.session_state.user_name, found[0])
+                            (status, notes, st.session_state.user_name, keep_id)
                         )
                     else:
                         c.execute(
@@ -496,6 +507,7 @@ elif menu == "Attendance":
         """, conn, params=(sel_class,))
         st.dataframe(hist, use_container_width=True)
     conn.close()
+
 # ====================== PAYMENTS ======================
 elif menu == "Payments":
     st.header("💳 Payments")
