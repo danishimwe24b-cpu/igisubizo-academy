@@ -240,57 +240,83 @@ def allowed_subjects():
     return [x.strip() for x in st.session_state.assigned_subjects.split(",") if x.strip()]
 
 # ====================== DASHBOARD ======================
-
 if menu == "Dashboard":
-
-    st.markdown("<div class='main-header'><h2>📊 Administration Dashboard & Monthly Financial Shares</h2></div>", unsafe_allow_html=True)
+    st.markdown("<div class='main-header'><h2>📊 Administration Dashboard</h2></div>", unsafe_allow_html=True)
     conn = get_conn()
 
-    # Top Student & Staff Counts
-    active_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc[0]["c"]
-    inactive_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc[0]["c"]
-    active_staff = pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc[0]["c"]
+    # Guarantee required tables exist in the live database
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS expenses (
+            expense_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month_year TEXT NOT NULL,
+            category TEXT,
+            description TEXT,
+            amount REAL NOT NULL,
+            expense_date TEXT,
+            recorded_by TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS teacher_attendance (
+            t_att_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER,
+            date TEXT,
+            status TEXT,
+            notes TEXT,
+            recorded_by TEXT
+        )
+    """)
+    conn.commit()
 
-    top1, top2, top3 = st.columns(3)
+    # 1. TOP SCHOOL OVERVIEW METRICS
+    active_students = int(pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc["c"])
+    inactive_students = int(pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc["c"])
+    active_staff = int(pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc["c"])
+    total_all_time_fees = float(pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as t FROM payments WHERE status='Paid'", conn).iloc["t"])
+
+    top1, top2, top3, top4 = st.columns(4)
     top1.metric("Active Students", active_students)
     top2.metric("Inactive Students", inactive_students)
     top3.metric("Active Staff", active_staff)
+    top4.metric("All-Time Collected", f"{total_all_time_fees:,.0f} RWF")
 
     st.divider()
+
+    # 2. MONTHLY FEES, EXPENSES & AUTOMATIC SHARE SPLIT (÷ 2)
     st.subheader("💰 Monthly Fees, Expenses & Automatic Share Split (÷ 2)")
 
-    # Default to current month if in PAYMENT_MONTHS, otherwise first month (2026-11)
     curr_ym = datetime.date.today().strftime("%Y-%m")
     default_idx = PAYMENT_MONTHS.index(curr_ym) if curr_ym in PAYMENT_MONTHS else 0
     selected_month = st.selectbox("Select Month to Inspect", PAYMENT_MONTHS, index=default_idx, key="dash_month_sel")
 
-    # Calculate Collected, Used (Expenses), Remaining Shares, and Split by 2 for selected_month
     collected_month = float(pd.read_sql_query(
         "SELECT COALESCE(SUM(amount), 0) as t FROM payments WHERE month_year=? AND status='Paid'",
         conn, params=(selected_month,)
-    ).iloc[0]["t"])
+    ).iloc["t"])
 
     used_month = float(pd.read_sql_query(
         "SELECT COALESCE(SUM(amount), 0) as t FROM expenses WHERE month_year=?",
         conn, params=(selected_month,)
-    ).iloc[0]["t"])
+    ).iloc["t"])
 
     total_shares_pool = collected_month - used_month
     share_per_person = total_shares_pool / 2.0
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric(f"Collected ({selected_month})", f"{collected_month:,.0f} RWF")
-    m2.metric(f"Total Used / Expenses", f"{used_month:,.0f} RWF")
+    m2.metric(f"Total Used ({selected_month})", f"{used_month:,.0f} RWF")
     m3.metric("Remaining (Total Shares)", f"{total_shares_pool:,.0f} RWF")
     m4.metric("Each Share (÷ 2)", f"{share_per_person:,.0f} RWF")
 
-    # Quick Expense Recorder & Monthly Breakdown Table
     fin_col1, fin_col2 = st.columns([1, 1.6])
 
     with fin_col1:
         with st.form(key=f"add_expense_form_{selected_month}", clear_on_submit=True):
             st.markdown(f"**➕ Record Expense for {selected_month}**")
-            exp_cat = st.selectbox("Category", ["Salaries & Allowances", "Supplies & Chalk", "Utilities (Water/Power)", "Maintenance", "Food / Kitchen", "Other"])
+            exp_cat = st.selectbox("Category", [
+                "Salaries & Allowances", "Supplies & Chalk", "Utilities (Water/Power)",
+                "Maintenance", "Food / Kitchen", "Transport / Admin", "Other"
+            ])
             exp_desc = st.text_input("Description (e.g., Chalk & Exercise Books)")
             exp_amt = st.number_input("Amount Used (RWF)", min_value=0.0, step=500.0)
             exp_date = st.date_input("Date", value=datetime.date.today())
@@ -302,7 +328,7 @@ if menu == "Dashboard":
                         VALUES (?,?,?,?,?,?)
                     """, (selected_month, exp_cat, exp_desc.strip(), exp_amt, str(exp_date), st.session_state.user_name))
                     conn.commit()
-                    st.success(f"Expense of {exp_amt:,.0f} RWF recorded for {selected_month}!")
+                    st.success(f"Expense of {exp_amt:,.0f} RWF saved for {selected_month}!")
                     st.rerun()
                 else:
                     st.error("Please enter an amount greater than 0.")
@@ -326,31 +352,45 @@ if menu == "Dashboard":
             summary_df["Total Shares (Remaining)"] = summary_df["Collected"] - summary_df["Used"]
             summary_df["Each Share (÷ 2)"] = summary_df["Total Shares (Remaining)"] / 2.0
 
-            # Format nicely for display
             display_df = summary_df.copy()
             for col in ["Collected", "Used", "Total Shares (Remaining)", "Each Share (÷ 2)"]:
                 display_df[col] = display_df[col].apply(lambda x: f"{x:,.0f} RWF")
             display_df.rename(columns={"month_year": "Month"}, inplace=True)
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-    # Show itemized expenses for the selected month
+    # Itemized Expenses & Delete Option for Selected Month
     month_exp_df = pd.read_sql_query(
         "SELECT expense_id, expense_date, category, description, amount, recorded_by FROM expenses WHERE month_year=? ORDER BY expense_id DESC",
         conn, params=(selected_month,)
     )
     if not month_exp_df.empty:
-        with st.expander(f"📋 View Itemized Expenses for {selected_month} ({len(month_exp_df)} items)"):
+        with st.expander(f"📋 Itemized Expenses for {selected_month} ({len(month_exp_df)} items)"):
             st.dataframe(month_exp_df, use_container_width=True, hide_index=True)
+            del_col1, del_col2 = st.columns([2, 1])
+            del_exp_id = del_col1.selectbox(
+                "Select Expense ID to Remove (if entered by mistake)",
+                month_exp_df["expense_id"].tolist(),
+                key=f"del_exp_sel_{selected_month}"
+            )
+            if del_col2.button("🗑️ Delete Expense", key=f"del_exp_btn_{selected_month}"):
+                conn.execute("DELETE FROM expenses WHERE expense_id=?", (int(del_exp_id),))
+                conn.commit()
+                st.success(f"Deleted expense #{del_exp_id}.")
+                st.rerun()
 
     st.divider()
+
+    # 3. TEACHER PERFORMANCE, TEACHER ATTENDANCE & CLASS OVERVIEW TABS
     tab_perf, tab_t_att, tab_overview = st.tabs([
         "🏆 Weekly Teacher Performance Ranking",
         "🕒 Record Teacher Attendance",
-        "📈 School Overview"
+        "📈 Classes & Recent Payments"
     ])
 
     with tab_perf:
         st.subheader("Automatic Weekly Teacher Performance Evaluation (Last 7 Days)")
+        st.caption("Scored automatically: Teacher Attendance (30%) + Student Attendance Recorded (25%) + Grades Recorded (25%) + Weekly Reports Sent (20%).")
+
         week_ago = str(datetime.date.today() - datetime.timedelta(days=7))
         teachers = pd.read_sql_query(
             "SELECT staff_id, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'",
@@ -366,31 +406,31 @@ if menu == "Dashboard":
                 t_name = t["full_name"]
 
                 # 1. Teacher Attendance (out of 5 school days = 30 pts)
-                t_present = pd.read_sql_query(
+                t_present = int(pd.read_sql_query(
                     "SELECT COUNT(*) as c FROM teacher_attendance WHERE staff_id=? AND date>=? AND status='Present'",
                     conn, params=(t_id, week_ago)
-                ).iloc[0]["c"]
+                ).iloc["c"])
                 t_att_pts = min((t_present / 5.0) * 30.0, 30.0)
 
                 # 2. Student Attendance Recorded this week (out of 5 days = 25 pts)
-                s_att_days = pd.read_sql_query(
+                s_att_days = int(pd.read_sql_query(
                     "SELECT COUNT(DISTINCT date) as c FROM attendance WHERE teacher=? AND date>=?",
                     conn, params=(t_name, week_ago)
-                ).iloc[0]["c"]
+                ).iloc["c"])
                 s_att_pts = min((s_att_days / 5.0) * 25.0, 25.0)
 
                 # 3. Student Grades Recorded this week (target 10+ entries = 25 pts)
-                gr_count = pd.read_sql_query(
+                gr_count = int(pd.read_sql_query(
                     "SELECT COUNT(*) as c FROM grades WHERE teacher=? AND date>=?",
                     conn, params=(t_name, week_ago)
-                ).iloc[0]["c"]
+                ).iloc["c"])
                 gr_pts = min((gr_count / 10.0) * 25.0, 25.0)
 
                 # 4. Weekly Report / Messages submitted (at least 1 report = 20 pts)
-                rep_count = pd.read_sql_query(
+                rep_count = int(pd.read_sql_query(
                     "SELECT COUNT(*) as c FROM messages WHERE sender_name=? AND substr(created_at,1,10)>=?",
                     conn, params=(t_name, week_ago)
-                ).iloc[0]["c"]
+                ).iloc["c"])
                 rep_pts = 20.0 if rep_count >= 1 else 0.0
 
                 total_score = round(t_att_pts + s_att_pts + gr_pts + rep_pts, 1)
@@ -406,35 +446,9 @@ if menu == "Dashboard":
                 perf_rows.append({
                     "Teacher": t_name,
                     "Classes": t["assigned_classes"],
-                    "Teacher Days Present": f"{t_present}/5",
-                    "Student Att. Days": f"{s_att_days}/5",
-                    "Grades Recorded": gr_count,
-                    "Weekly Reports": rep_count,
-                    "Score (%)": total_score,
-                    "Rating": rating
-                })
+                    "Teacher Present": f"{t_present}/5 days",
+                    "Student Att. Logged": f"{s_att_days}/5 days",
 
-            perf_df = pd.DataFrame(perf_rows).sort_values(by="Score (%)", ascending=False)
-            top_teacher = perf_df.iloc[0]
-            st.success(f"🥇 **Top Performing Teacher This Week:** {top_teacher['Teacher']} ({top_teacher['Score (%)']}% — {top_teacher['Rating']})")
-            st.dataframe(perf_df, use_container_width=True, hide_index=True)
-
-    with tab_t_att:
-        st.subheader("Daily Teacher Attendance Log")
-        t_date = st.date_input("Date", value=datetime.date.today(), key="t_att_date")
-        t_date_str = str(t_date)
-        all_t = pd.read_sql_query("SELECT staff_id, full_name, role FROM staff WHERE status='Active' ORDER BY full_name", conn)
-
-        if not all_t.empty:
-            with st.form(key=f"teacher_att_form_{t_date_str}"):
-                t_records = []
-                for _, tr in all_t.iterrows():
-                    sid = int(tr["staff_id"])
-                    tc1, tc2, tc3 = st.columns([2.5, 1.5, 2.5])
-                    tc1.write(f"**{tr['full_name']}** ({tr['role']})")
-                    t_stat = tc2.selectbox("Status", ["Present", "Late", "Absent", "On Leave"], key=f"tstat_{sid}_{t_date_str}", label_visibility="collapsed")
-                    t_note = tc3.text_input("Notes", placeholder="Arrival time / remarks", key=f"tnote_{sid}_{t_date_str}", label_visibility="collapsed")
-                    t_records.append((sid, t_stat, t_note))
 
 # ====================== STUDENTS ======================
 elif menu == "Students":
