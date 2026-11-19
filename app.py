@@ -519,11 +519,15 @@ if menu == "Dashboard":
         st.subheader("Automatic Weekly Teacher Performance Evaluation (Last 7 Days)")
         st.caption("Scored automatically: Teacher Attendance (30%) + Student Attendance Logged (25%) + Grades Recorded (25%) + Weekly Reports Sent (20%).")
 
-        week_ago = str(datetime.date.today() - datetime.timedelta(days=7))
+        
+week_ago = str(datetime.date.today() - datetime.timedelta(days=7))
         teachers = pd.read_sql_query(
             "SELECT staff_id, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'",
             conn
         )
+
+        week_ago = str(datetime.date.today() - datetime.timedelta(days=7))
+        teachers = pd.read_sql_query("SELECT staff_id, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'", conn)
 
         if teachers.empty:
             st.info("No active teachers registered yet.")
