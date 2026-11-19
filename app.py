@@ -510,52 +510,137 @@ elif menu == "Attendance":
 
 # ====================== PAYMENTS ======================
 elif menu == "Payments":
-    st.header("💳 Payments")
-    if st.session_state.user_role not in ["Administration", "Register Officer"]:
-        st.warning("Only Administration and Register Officer can manage payments")
-        st.stop()
-
+    st.header("💳 School Fees & Payments")
     conn = get_conn()
-    tab1, tab2 = st.tabs(["Record / Update Payment", "All Payments by Class"])
+
+    tab1, tab2, tab3 = st.tabs(["Record Payment", "Payment Records", "Update Payment Status"])
 
     with tab1:
-        grade = st.selectbox("Class Level", CLASS_LEVELS, key="pgrade")
+        sel_class = st.selectbox("Select Class", CLASS_LEVELS, key="pay_class")
         students = pd.read_sql_query(
             "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-            conn, params=(grade,)
+            conn, params=(sel_class,)
         )
-        if not students.empty:
-            with st.form("pay_form"):
-                smap = dict(zip(students["student_name"], students["student_id"]))
-                student = st.selectbox("Student", list(smap.keys()))
-                month = st.selectbox("Month", PAYMENT_MONTHS)
-                status = st.selectbox("Status", PAYMENT_STATUS)
-                amount = st.number_input("Amount (RWF)", value=MONTHLY_FEE, step=500)
-                if st.form_submit_button("Save Payment"):
-                    try:
-                        conn.execute(
-                            "INSERT INTO payments (student_id, month_year, amount, status, paid_date, recorded_by) VALUES (?,?,?,?,?,?)",
-                            (smap[student], month, amount, status, str(datetime.date.today()), st.session_state.user_name)
+
+        if students.empty:
+            st.warning("No active students in this class.")
+        else:
+            student_dict = {
+                f"{row['student_name']} (ID #{row['student_id']})": int(row["student_id"])
+                for _, row in students.iterrows()
+            }
+            sel_student_label = st.selectbox("Select Student", list(student_dict.keys()), key="pay_student")
+            sid = student_dict[sel_student_label]
+
+            # Display already recorded months for this student
+            paid_months_df = pd.read_sql_query(
+                "SELECT month_year, amount, status, paid_date FROM payments WHERE student_id=? ORDER BY month_year ASC",
+                conn, params=(sid,)
+            )
+            if not paid_months_df.empty:
+                recorded_list = [
+                    f"{r['month_year']} ({r['status']})" for _, r in paid_months_df.iterrows()
+                ]
+                st.info(f"**Already recorded for {sel_student_label}:** " + ", ".join(recorded_list))
+
+            with st.form("payment_form"):
+                col1, col2 = st.columns(2)
+                # Dropdown showing current & future months (2026-11 to 2030-12)
+                month_year = col1.selectbox("Select Month (Current or Future)", PAYMENT_MONTHS)
+                amount = col2.number_input("Amount (RWF)", min_value=0, value=MONTHLY_FEE, step=500)
+
+                col3, col4 = st.columns(2)
+                status = col3.selectbox("Payment Status", PAYMENT_STATUS)
+                paid_date = col4.date_input("Payment Date", value=datetime.date.today())
+
+                if st.form_submit_button("💾 Record Payment", use_container_width=True):
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT payment_id, status FROM payments WHERE student_id=? AND month_year=?",
+                        (sid, month_year)
+                    )
+                    existing_pay = cur.fetchone()
+
+                    if existing_pay:
+                        st.error(
+                            f"⚠️ **{sel_student_label}** is already recorded for **{month_year}** "
+                            f"(Status: **{existing_pay[1]}**). Only one record per student per month is allowed."
                         )
-                        conn.commit()
-                        st.success("Payment saved")
-                    except sqlite3.IntegrityError:
-                        conn.execute(
-                            "UPDATE payments SET amount=?, status=?, paid_date=?, recorded_by=? WHERE student_id=? AND month_year=?",
-                            (amount, status, str(datetime.date.today()), st.session_state.user_name, smap[student], month)
-                        )
-                        conn.commit()
-                        st.success("Payment updated")
-                    st.rerun()
+                    else:
+                        try:
+                            cur.execute("""
+                                INSERT INTO payments (student_id, month_year, amount, status, paid_date, recorded_by)
+                                VALUES (?,?,?,?,?,?)
+                            """, (sid, month_year, amount, status, str(paid_date), st.session_state.user_name))
+                            conn.commit()
+                            st.success(f"Payment recorded for **{sel_student_label}** for **{month_year}**!")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error(f"⚠️ Duplicate blocked: **{sel_student_label}** already has a payment for **{month_year}**.")
 
     with tab2:
-        st.dataframe(pd.read_sql_query("""
-            SELECT s.student_name, s.grade, s.gender, p.month_year, p.amount, p.status, p.paid_date, p.recorded_by
-            FROM payments p JOIN students s ON p.student_id = s.student_id
-            WHERE s.status='Active'
-            ORDER BY s.grade, s.student_name, p.month_year
-        """, conn), use_container_width=True)
+        c1, c2 = st.columns(2)
+        filter_month = c1.selectbox("Filter by Month", ["All"] + PAYMENT_MONTHS, key="filter_pay_month")
+        filter_status = c2.selectbox("Filter by Status", ["All"] + PAYMENT_STATUS, key="filter_pay_status")
+
+        query = """
+            SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date, p.recorded_by
+            FROM payments p
+            JOIN students s ON p.student_id = s.student_id
+            WHERE 1=1
+        """
+        params = []
+        if filter_month != "All":
+            query += " AND p.month_year = ?"
+            params.append(filter_month)
+        if filter_status != "All":
+            query += " AND p.status = ?"
+            params.append(filter_status)
+
+        query += " ORDER BY p.month_year DESC, s.grade, s.student_name"
+        pay_df = pd.read_sql_query(query, conn, params=params)
+        st.dataframe(pay_df, use_container_width=True)
+
+    with tab3:
+        st.subheader("✏️ Update Existing Payment Record")
+        all_pays = pd.read_sql_query("""
+            SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date
+            FROM payments p
+            JOIN students s ON p.student_id = s.student_id
+            ORDER BY p.payment_id DESC
+        """, conn)
+
+        if all_pays.empty:
+            st.info("No payment records available to update.")
+        else:
+            pay_options = {
+                f"#{r['payment_id']} | {r['student_name']} ({r['grade']}) - {r['month_year']} [{r['status']}]": r
+                for _, r in all_pays.iterrows()
+            }
+            sel_pay_label = st.selectbox("Select Payment Record", list(pay_options.keys()))
+            rec = pay_options[sel_pay_label]
+
+            with st.form("edit_payment_form"):
+                c1, c2 = st.columns(2)
+                upd_amount = c1.number_input("Amount (RWF)", min_value=0, value=int(rec["amount"]), step=500)
+                upd_status = c2.selectbox(
+                    "New Status",
+                    PAYMENT_STATUS,
+                    index=PAYMENT_STATUS.index(rec["status"]) if rec["status"] in PAYMENT_STATUS else 0
+                )
+                upd_date = st.date_input("Payment Date", value=datetime.date.today())
+
+                if st.form_submit_button("Update Payment"):
+                    conn.execute(
+                        "UPDATE payments SET amount=?, status=?, paid_date=?, recorded_by=? WHERE payment_id=?",
+                        (upd_amount, upd_status, str(upd_date), st.session_state.user_name, int(rec["payment_id"]))
+                    )
+                    conn.commit()
+                    st.success("Payment record updated!")
+                    st.rerun()
+
     conn.close()
+
 
 # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
