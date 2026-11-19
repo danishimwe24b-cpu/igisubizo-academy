@@ -640,8 +640,6 @@ elif menu == "Payments":
                     st.rerun()
 
     conn.close()
-
-
 # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
     st.header("📄 Report Cards")
