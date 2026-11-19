@@ -273,36 +273,6 @@ if menu == "Dashboard":
 # ====================== STUDENTS ======================
 tab1, tab2, tab3, tab4 = st.tabs(["Active Students", "Add Student", "Edit Student", "Change Status"])
 
-    st.header("👥 Students Management")
-    conn = get_conn()
-    tab1, tab2, tab3 = st.tabs(["Active Students", "Add Student", "Change Status"])
-
-    with tab1:
-        grade = st.selectbox("Filter by Class Level", ["All"] + CLASS_LEVELS)
-        if grade == "All":
-            df = pd.read_sql_query("SELECT student_id, student_name, grade, gender, parent_name, parent_phone, status FROM students WHERE status='Active' ORDER BY grade, student_name", conn)
-        else:
-            df = pd.read_sql_query("SELECT student_id, student_name, grade, gender, parent_name, parent_phone, status FROM students WHERE grade=? AND status='Active' ORDER BY student_name", conn, params=(grade,))
-        st.dataframe(df, use_container_width=True)
-
-    with tab2:
-        with st.form("add_student"):
-            name = st.text_input("Student Full Name *")
-            col1, col2 = st.columns(2)
-            g = col1.selectbox("Class Level", CLASS_LEVELS)
-            gender = col2.selectbox("Gender", ["Male", "Female"])
-            pname = st.text_input("Parent / Guardian Name")
-            phone = st.text_input("Parent Phone")
-            email = st.text_input("Parent Email")
-            if st.form_submit_button("Save Student") and name.strip():
-                conn.execute(
-                    "INSERT INTO students (student_name, grade, gender, parent_name, parent_phone, parent_email, status, created_at) VALUES (?,?,?,?,?,?,'Active',?)",
-                    (name.strip(), g, gender, pname.strip(), phone.strip(), email.strip(), str(datetime.date.today()))
-                )
-                conn.commit()
-                st.success("Student added successfully")
-                st.rerun()
-
         with tab3:
         st.subheader("✏️ Edit Student Information")
         all_students = pd.read_sql_query(
@@ -349,8 +319,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["Active Students", "Add Student", "Edit Studen
                     conn.commit()
                     st.success("Student information updated!")
                     st.rerun()
-
-
 # ====================== STAFF ======================
 elif menu == "Staff & Teachers":
     st.header("👨🏫 Staff & Teachers")
