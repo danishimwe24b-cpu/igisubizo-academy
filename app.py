@@ -18,6 +18,12 @@ ASSESSMENT_TYPES = ["Homework", "Exercise", "Quiz", "Exam", "Midterm"]
 
 PAYMENT_MONTHS = []
 for year in:
+PAYMENT_MONTHS = []
+for year in:
+    start = 11 if year == 2026 else 1
+    for m in range(start, 13):
+        PAYMENT_MONTHS.append(f"{year}-{m:02d}")
+
     start = 11 if year == 2026 else 1
     for m in range(start, 13):
         PAYMENT_MONTHS.append(f"{year}-{m:02d}")
