@@ -271,7 +271,8 @@ if menu == "Dashboard":
     conn.close()
 
 # ====================== STUDENTS ======================
-elif menu == "Students":
+tab1, tab2, tab3, tab4 = st.tabs(["Active Students", "Add Student", "Edit Student", "Change Status"])
+
     st.header("👥 Students Management")
     conn = get_conn()
     tab1, tab2, tab3 = st.tabs(["Active Students", "Add Student", "Change Status"])
@@ -302,17 +303,53 @@ elif menu == "Students":
                 st.success("Student added successfully")
                 st.rerun()
 
-    with tab3:
-        df = pd.read_sql_query("SELECT student_id, student_name, grade, status FROM students ORDER BY grade, student_name", conn)
-        st.dataframe(df, use_container_width=True)
-        sid = st.number_input("Student ID", min_value=1, step=1)
-        new_status = st.selectbox("New Status", ["Active", "Inactive"])
-        if st.button("Update Status"):
-            conn.execute("UPDATE students SET status=? WHERE student_id=?", (new_status, int(sid)))
-            conn.commit()
-            st.success("Status updated – Inactive students are removed from active lists")
-            st.rerun()
-    conn.close()
+        with tab3:
+        st.subheader("✏️ Edit Student Information")
+        all_students = pd.read_sql_query(
+            "SELECT * FROM students ORDER BY grade, student_name", conn
+        )
+        if all_students.empty:
+            st.info("No students available to edit.")
+        else:
+            student_options = {
+                f"{r['student_name']} ({r['grade']} - ID #{r['student_id']})": r
+                for _, r in all_students.iterrows()
+            }
+            selected_label = st.selectbox("Select Student to Edit", list(student_options.keys()))
+            stu = student_options[selected_label]
+
+            with st.form("edit_student_form"):
+                new_name = st.text_input("Student Full Name *", value=stu["student_name"])
+                c1, c2 = st.columns(2)
+                new_grade = c1.selectbox(
+                    "Class Level",
+                    CLASS_LEVELS,
+                    index=CLASS_LEVELS.index(stu["grade"]) if stu["grade"] in CLASS_LEVELS else 0
+                )
+                gender_opts = ["Male", "Female"]
+                new_gender = c2.selectbox(
+                    "Gender",
+                    gender_opts,
+                    index=gender_opts.index(stu["gender"]) if stu["gender"] in gender_opts else 0
+                )
+                new_pname = st.text_input("Parent / Guardian Name", value=stu["parent_name"] or "")
+                new_phone = st.text_input("Parent Phone", value=stu["parent_phone"] or "")
+                new_email = st.text_input("Parent Email", value=stu["parent_email"] or "")
+
+                if st.form_submit_button("Update Student Info") and new_name.strip():
+                    conn.execute("""
+                        UPDATE students
+                        SET student_name=?, grade=?, gender=?, parent_name=?, parent_phone=?, parent_email=?
+                        WHERE student_id=?
+                    """, (
+                        new_name.strip(), new_grade, new_gender,
+                        new_pname.strip(), new_phone.strip(), new_email.strip(),
+                        int(stu["student_id"])
+                    ))
+                    conn.commit()
+                    st.success("Student information updated!")
+                    st.rerun()
+
 
 # ====================== STAFF ======================
 elif menu == "Staff & Teachers":
@@ -756,50 +793,7 @@ elif menu == "Report Cards":
         st.dataframe(class_students, use_container_width=True)
 
     conn.close()
-    # --- ADD THIS INSIDE GRADES & REPORT CARDS FOR STUDENT PROGRESS ---
-st.divider()
-st.subheader("📈 Individual Student Progress")
-
-prog_student_name = st.selectbox(
-    "Select Student to View Progress",
-    students["student_name"].tolist(),
-    key="prog_student_select"
-)
-prog_sid = int(students[students["student_name"] == prog_student_name].iloc[0]["student_id"])
-
-prog_df = pd.read_sql_query("""
-    SELECT date, term, subject, assessment_type, score, max_score,
-           ROUND((score * 100.0 / max_score), 1) AS percentage
-    FROM grades
-    WHERE student_id = ?
-    ORDER BY date ASC, grade_id ASC
-""", conn, params=(prog_sid,))
-
-if prog_df.empty:
-    st.info("No grades recorded yet for this student.")
-else:
-    # Key Progress Metrics
-    avg_pct = prog_df["percentage"].mean()
-    latest_pct = prog_df.iloc[-1]["percentage"]
-    first_pct = prog_df.iloc[0]["percentage"]
-    growth = latest_pct - first_pct
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Overall Average", f"{avg_pct:.1f}%")
-    m2.metric("Latest Assessment", f"{latest_pct:.1f}%", f"{growth:+.1f}% since first")
-    m3.metric("Total Assessments", len(prog_df))
-
-    # Line chart showing progress over time by subject
-    chart_df = prog_df.pivot_table(index="date", columns="subject", values="percentage", aggfunc="mean")
-    st.line_chart(chart_df)
-
-    # Subject-by-subject breakdown
-    st.write("**Subject Averages**")
-    subj_summary = prog_df.groupby("subject")["percentage"].agg(["count", "mean", "min", "max"]).reset_index()
-    subj_summary.columns = ["Subject", "Assessments", "Average (%)", "Lowest (%)", "Highest (%)"]
-    st.dataframe(subj_summary.round(1), use_container_width=True)
-
-
+   
 # ====================== CODE OF CONDUCT ======================
 elif menu == "Code of Conduct":
     st.header("📜 School Code of Conduct")
