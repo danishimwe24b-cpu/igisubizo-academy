@@ -240,6 +240,7 @@ def allowed_subjects():
     return [x.strip() for x in st.session_state.assigned_subjects.split(",") if x.strip()]
 
 # ====================== DASHBOARD ======================
+
 elif menu == "Dashboard":
     st.markdown("<div class='main-header'><h2>📊 Administration Dashboard & Monthly Financial Shares</h2></div>", unsafe_allow_html=True)
     conn = get_conn()
