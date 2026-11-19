@@ -31,31 +31,203 @@ if menu == "Dashboard":
     st.markdown("<div class='main-header'><h2>📊 Administration Dashboard</h2></div>", unsafe_allow_html=True)
     conn = get_conn()
 
-    active_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc[0]["c"]
-    inactive_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc[0]["c"]
-    total_paid = pd.read_sql_query("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE status='Paid'", conn).iloc[0]["t"]
-    active_staff = pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc[0]["c"]
+    # 1. TOP OVERVIEW METRICS
+    active_students = int(pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc["c"])
+    inactive_students = int(pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc["c"])
+    active_staff = int(pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc["c"])
+    total_all_time = float(pd.read_sql_query("SELECT COALESCE(SUM(amount), 0) as t FROM payments WHERE status='Paid'", conn).iloc["t"])
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Active Students", active_students)
-    c2.metric("Inactive Students", inactive_students)
-    c3.metric("Fees Collected", f"{total_paid:,.0f} RWF")
-    c4.metric("Active Staff", active_staff)
+    top1, top2, top3, top4 = st.columns(4)
+    top1.metric("Active Students", active_students)
+    top2.metric("Inactive Students", inactive_students)
+    top3.metric("Active Staff", active_staff)
+    top4.metric("All-Time Collected", f"{total_all_time:,.0f} RWF")
 
-    st.subheader("Students per Class Level")
-    df = pd.read_sql_query("SELECT grade, COUNT(*) as total FROM students WHERE status='Active' GROUP BY grade", conn)
-    if not df.empty:
-        st.bar_chart(df.set_index("grade"))
-    else:
-        st.info("No active students yet")
+    st.divider()
 
-    st.subheader("Recent Payments")
-    st.dataframe(pd.read_sql_query("""
-        SELECT s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date
-        FROM payments p JOIN students s ON p.student_id = s.student_id
-        ORDER BY p.payment_id DESC LIMIT 15
-    """, conn), use_container_width=True)
-    conn.close()
+    # 2. MONTHLY FEES, EXPENSES & AUTOMATIC SHARE SPLIT (÷ 2)
+    st.subheader("💰 Monthly Fees, Expenses & Automatic Share Split (÷ 2)")
+
+    curr_ym = datetime.date.today().strftime("%Y-%m")
+    default_idx = PAYMENT_MONTHS.index(curr_ym) if curr_ym in PAYMENT_MONTHS else 0
+    selected_month = st.selectbox("Select Month to Inspect", PAYMENT_MONTHS, index=default_idx, key="dash_month_sel")
+
+    collected_month = float(pd.read_sql_query(
+        "SELECT COALESCE(SUM(amount), 0) as t FROM payments WHERE month_year=? AND status='Paid'",
+        conn, params=(selected_month,)
+    ).iloc["t"])
+
+    used_month = float(pd.read_sql_query(
+        "SELECT COALESCE(SUM(amount), 0) as t FROM expenses WHERE month_year=?",
+        conn, params=(selected_month,)
+    ).iloc["t"])
+
+    total_shares_pool = collected_month - used_month
+    share_per_person = total_shares_pool / 2.0
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric(f"Collected ({selected_month})", f"{collected_month:,.0f} RWF")
+    m2.metric(f"Total Used ({selected_month})", f"{used_month:,.0f} RWF")
+    m3.metric("Remaining (Total Shares)", f"{total_shares_pool:,.0f} RWF")
+    m4.metric("Each Share (÷ 2)", f"{share_per_person:,.0f} RWF")
+
+    fin_col1, fin_col2 = st.columns([1, 1.6])
+
+    with fin_col1:
+        with st.form(key=f"add_expense_form_{selected_month}", clear_on_submit=True):
+            st.markdown(f"**➕ Record Expense for {selected_month}**")
+            exp_cat = st.selectbox("Category", [
+                "Salaries & Allowances", "Supplies & Chalk", "Utilities (Water/Power)",
+                "Maintenance", "Food / Kitchen", "Transport / Admin", "Other"
+            ])
+            exp_desc = st.text_input("Description (e.g., Chalk & Exercise Books)")
+            exp_amt = st.number_input("Amount Used (RWF)", min_value=0.0, step=500.0)
+            exp_date = st.date_input("Date", value=datetime.date.today())
+
+            if st.form_submit_button("💾 Save Expense", use_container_width=True):
+                if exp_amt > 0:
+                    conn.execute("""
+                        INSERT INTO expenses (month_year, category, description, amount, expense_date, recorded_by)
+                        VALUES (?,?,?,?,?,?)
+                    """, (selected_month, exp_cat, exp_desc.strip(), exp_amt, str(exp_date), st.session_state.user_name))
+                    conn.commit()
+                    st.success(f"Expense of {exp_amt:,.0f} RWF saved for {selected_month}!")
+                    st.rerun()
+                else:
+                    st.error("Please enter an amount greater than 0.")
+
+    with fin_col2:
+        st.markdown("**📅 Automatic Monthly Financial Summary (All Recorded Months)**")
+        pay_by_m = pd.read_sql_query(
+            "SELECT month_year, COALESCE(SUM(amount), 0) AS Collected FROM payments WHERE status='Paid' GROUP BY month_year",
+            conn
+        )
+        exp_by_m = pd.read_sql_query(
+            "SELECT month_year, COALESCE(SUM(amount), 0) AS Used FROM expenses GROUP BY month_year",
+            conn
+        )
+
+        if pay_by_m.empty and exp_by_m.empty:
+            st.info("No payments or expenses recorded yet.")
+        else:
+            summary_df = pd.merge(pay_by_m, exp_by_m, on="month_year", how="outer").fillna(0)
+            summary_df = summary_df.sort_values("month_year")
+            summary_df["Total Shares (Remaining)"] = summary_df["Collected"] - summary_df["Used"]
+            summary_df["Each Share (÷ 2)"] = summary_df["Total Shares (Remaining)"] / 2.0
+
+            display_df = summary_df.copy()
+            for col in ["Collected", "Used", "Total Shares (Remaining)", "Each Share (÷ 2)"]:
+                display_df[col] = display_df[col].apply(lambda x: f"{x:,.0f} RWF")
+            display_df.rename(columns={"month_year": "Month"}, inplace=True)
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    month_exp_df = pd.read_sql_query(
+        "SELECT expense_id, expense_date, category, description, amount, recorded_by FROM expenses WHERE month_year=? ORDER BY expense_id DESC",
+        conn, params=(selected_month,)
+    )
+    if not month_exp_df.empty:
+        with st.expander(f"📋 Itemized Expenses for {selected_month} ({len(month_exp_df)} items)"):
+            st.dataframe(month_exp_df, use_container_width=True, hide_index=True)
+            del_col1, del_col2 = st.columns()
+            del_exp_id = del_col1.selectbox(
+                "Select Expense ID to Remove",
+                month_exp_df["expense_id"].tolist(),
+                key=f"del_exp_sel_{selected_month}"
+            )
+            if del_col2.button("🗑️ Delete Expense", key=f"del_exp_btn_{selected_month}"):
+                conn.execute("DELETE FROM expenses WHERE expense_id=?", (int(del_exp_id),))
+                conn.commit()
+                st.success(f"Deleted expense #{del_exp_id}.")
+                st.rerun()
+
+    st.divider()
+
+    # 3. TEACHER PERFORMANCE, TEACHER ATTENDANCE & OVERVIEW TABS
+    tab_perf, tab_t_att, tab_overview = st.tabs([
+        "🏆 Weekly Teacher Performance Ranking",
+        "🕒 Record Teacher Attendance",
+        "📈 Classes & Recent Payments"
+    ])
+
+    with tab_perf:
+        st.subheader("Automatic Weekly Teacher Performance Evaluation (Last 7 Days)")
+        st.caption("Scored automatically: Teacher Attendance (30%) + Student Attendance Logged (25%) + Grades Recorded (25%) + Weekly Reports Sent (20%).")
+
+        week_ago = str(datetime.date.today() - datetime.timedelta(days=7))
+        teachers = pd.read_sql_query(
+            "SELECT staff_id, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'",
+            conn
+        )
+
+        if teachers.empty:
+            st.info("No active teachers registered yet.")
+        else:
+            perf_rows = []
+            for _, t in teachers.iterrows():
+                t_id = int(t["staff_id"])
+                t_name = t["full_name"]
+
+                t_present = int(pd.read_sql_query(
+                    "SELECT COUNT(*) as c FROM teacher_attendance WHERE staff_id=? AND date>=? AND status='Present'",
+                    conn, params=(t_id, week_ago)
+                ).iloc["c"])
+                t_att_pts = min((t_present / 5.0) * 30.0, 30.0)
+
+                s_att_days = int(pd.read_sql_query(
+                    "SELECT COUNT(DISTINCT date) as c FROM attendance WHERE teacher=? AND date>=?",
+                    conn, params=(t_name, week_ago)
+                ).iloc["c"])
+                s_att_pts = min((s_att_days / 5.0) * 25.0, 25.0)
+
+                gr_count = int(pd.read_sql_query(
+                    "SELECT COUNT(*) as c FROM grades WHERE teacher=? AND date>=?",
+                    conn, params=(t_name, week_ago)
+                ).iloc["c"])
+                gr_pts = min((gr_count / 10.0) * 25.0, 25.0)
+
+                rep_count = int(pd.read_sql_query(
+                    "SELECT COUNT(*) as c FROM messages WHERE sender_name=? AND substr(created_at,1,10)>=?",
+                    conn, params=(t_name, week_ago)
+                ).iloc["c"])
+                rep_pts = 20.0 if rep_count >= 1 else 0.0
+
+                total_score = round(t_att_pts + s_att_pts + gr_pts + rep_pts, 1)
+                if total_score >= 85:
+                    rating = "🌟 Excellent"
+                elif total_score >= 65:
+                    rating = "✅ Good"
+                elif total_score >= 45:
+                    rating = "⚠️ Fair"
+                else:
+                    rating = "🔻 Needs Follow-up"
+
+                perf_rows.append({
+                    "Teacher": t_name,
+                    "Classes": t["assigned_classes"],
+                    "Teacher Present": f"{t_present}/5 days",
+                    "Student Att. Logged": f"{s_att_days}/5 days",
+                    "Grades Logged": gr_count,
+                    "Weekly Reports": rep_count,
+                    "Performance Score": f"{total_score}%",
+                    "Numeric_Score": total_score,
+                    "Rating": rating
+                })
+
+            perf_df = pd.DataFrame(perf_rows).sort_values(by="Numeric_Score", ascending=False)
+            top_teacher = perf_df.iloc
+            st.success(f"🥇 **Top Performing Teacher This Week:** {top_teacher['Teacher']} ({top_teacher['Performance Score']} — {top_teacher['Rating']})")
+            st.dataframe(perf_df.drop(columns=["Numeric_Score"]), use_container_width=True, hide_index=True)
+
+    with tab_t_att:
+        st.subheader("Daily Teacher & Staff Attendance Log")
+        t_date = st.date_input("Select Date", value=datetime.date.today(), key="t_att_date")
+        t_date_str = str(t_date)
+        all_t = pd.read_sql_query("SELECT staff_id, full_name, role FROM staff WHERE status='Active' ORDER BY full_name", conn)
+
+        if all_t.empty:
+            st.info("No active staff found.")
+        else:
+            existing_t_df = pd.read_sql_query(
 # ====================== PAGE SETUP ======================
 st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
 
