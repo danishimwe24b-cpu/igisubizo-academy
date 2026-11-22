@@ -39,17 +39,18 @@ def get_db_url():
         url = url.replace("&channel_binding=require", "")
     return url
 
-@st.cache_resource
 class NeonConnWrapper:
-    """Wraps psycopg2 connection so existing .execute() calls work cleanly."""
+    """Wraps a fresh psycopg2 connection so existing .execute() calls work cleanly."""
     def __init__(self):
         self.raw = psycopg2.connect(get_db_url())
 
     def cursor(self):
+        if self.raw.closed:
+            self.raw = psycopg2.connect(get_db_url())
         return self.raw.cursor()
 
     def execute(self, sql, params=None):
-        cur = self.raw.cursor()
+        cur = self.cursor()
         sql_pg = sql.replace("?", "%s")
         if params is not None:
             cur.execute(sql_pg, params)
@@ -58,16 +59,18 @@ class NeonConnWrapper:
         return cur
 
     def commit(self):
-        self.raw.commit()
+        if not self.raw.closed:
+            self.raw.commit()
 
     def close(self):
-        self.raw.close()
+        if not self.raw.closed:
+            self.raw.close()
 
 def get_conn():
     return NeonConnWrapper()
 
 def read_sql(query, params=None):
-    """Reads data directly using psycopg2 without needing SQLAlchemy."""
+    """Reads data directly using a fresh psycopg2 connection."""
     conn = psycopg2.connect(get_db_url())
     try:
         cur = conn.cursor()
@@ -81,7 +84,6 @@ def read_sql(query, params=None):
         return pd.DataFrame(rows, columns=cols)
     finally:
         conn.close()
-
 
 def init_db():
     conn = get_conn()
