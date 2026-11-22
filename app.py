@@ -1090,7 +1090,7 @@ elif menu == "Messages":
                 (st.session_state.user_name, st.session_state.user_role, recipient, subject, body, str(datetime.datetime.now()))
             )
             conn.commit()
-            st.success("Message sent")
+            st.success("Message sent") 
             st.rerun()
     st.dataframe(pd.read_sql_query("SELECT * FROM messages ORDER BY msg_id DESC LIMIT 50", conn), use_container_width=True)
     conn.close()
