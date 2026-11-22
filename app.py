@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
+import psycopg2
+from sqlalchemy import create_engine
 import datetime
-import io 
+import io
 import os
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, HRFlowable
@@ -17,7 +18,7 @@ SUBJECT_LIST = ["English", "Kinyarwanda", "Mathematics", "SET", "SST", "French",
 ASSESSMENT_TYPES = ["Homework", "Exercise", "Quiz", "Exam", "Midterm"]
 
 PAYMENT_MONTHS = []
-for year in [2026, 2027, 2028, 2029, 2030]:
+for year in:
     start = 11 if year == 2026 else 1
     for m in range(start, 13):
         PAYMENT_MONTHS.append(f"{year}-{m:02d}")
@@ -25,9 +26,55 @@ for year in [2026, 2027, 2028, 2029, 2030]:
 PAYMENT_STATUS = ["Paid", "Not paid", "Late 5 days", "Late 5-10 days", "Late 15 days", "Bonus", "Drop out"]
 MONTHLY_FEE = 5000
 
-# ====================== DATABASE ======================
+# ====================== DATABASE (NEON POSTGRESQL) ======================
+def get_db_url():
+    url = st.secrets.get("DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not url:
+        st.error("Missing DATABASE_URL in Streamlit Secrets or Environment Variables.")
+        st.stop()
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    if "&channel_binding=require" in url:
+        url = url.replace("&channel_binding=require", "")
+    return url
+
+@st.cache_resource
+def get_engine():
+    return create_engine(get_db_url(), pool_pre_ping=True)
+
+class NeonConnWrapper:
+    """Wraps psycopg2 connection so existing .execute() calls and pandas queries work cleanly."""
+    def __init__(self):
+        self.raw = psycopg2.connect(get_db_url())
+
+    def cursor(self):
+        return self.raw.cursor()
+
+    def execute(self, sql, params=None):
+        cur = self.raw.cursor()
+        sql_pg = sql.replace("?", "%s")
+        if params is not None:
+            cur.execute(sql_pg, params)
+        else:
+            cur.execute(sql_pg)
+        return cur
+
+    def commit(self):
+        self.raw.commit()
+
+    def close(self):
+        self.raw.close()
+
 def get_conn():
-    return sqlite3.connect("igisubizo_academy.db", check_same_thread=False)
+    return NeonConnWrapper()
+
+def read_sql(query, params=None):
+    """Helper for pandas read_sql_query using SQLAlchemy engine and %s placeholders."""
+    engine = get_engine()
+    query_pg = query.replace("?", "%s")
+    if params is not None:
+        return pd.read_sql_query(query_pg, engine, params=tuple(params))
+    return pd.read_sql_query(query_pg, engine)
 
 def init_db():
     conn = get_conn()
@@ -35,7 +82,7 @@ def init_db():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS students (
-            student_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id SERIAL PRIMARY KEY,
             student_name TEXT NOT NULL,
             grade TEXT NOT NULL,
             gender TEXT DEFAULT 'Male',
@@ -49,7 +96,7 @@ def init_db():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS grades (
-            grade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            grade_id SERIAL PRIMARY KEY,
             student_id INTEGER,
             subject TEXT,
             assessment_type TEXT,
@@ -62,8 +109,22 @@ def init_db():
     """)
 
     c.execute("""
+        CREATE TABLE IF NOT EXISTS language_skills (
+            skill_id SERIAL PRIMARY KEY,
+            student_id INTEGER,
+            term TEXT,
+            language TEXT,
+            speaking TEXT,
+            reading TEXT,
+            writing TEXT,
+            teacher TEXT,
+            UNIQUE(student_id, term, language)
+        )
+    """)
+
+    c.execute("""
         CREATE TABLE IF NOT EXISTS attendance (
-            attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            attendance_id SERIAL PRIMARY KEY,
             student_id INTEGER,
             date TEXT,
             status TEXT,
@@ -74,7 +135,7 @@ def init_db():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS payments (
-            payment_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_id SERIAL PRIMARY KEY,
             student_id INTEGER,
             month_year TEXT,
             amount REAL DEFAULT 5000,
@@ -87,7 +148,7 @@ def init_db():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS staff (
-            staff_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id SERIAL PRIMARY KEY,
             full_name TEXT,
             role TEXT,
             username TEXT UNIQUE,
@@ -101,7 +162,7 @@ def init_db():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS messages (
-            msg_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            msg_id SERIAL PRIMARY KEY,
             sender_name TEXT,
             sender_role TEXT,
             recipient TEXT,
@@ -113,7 +174,7 @@ def init_db():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS notifications (
-            notif_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            notif_id SERIAL PRIMARY KEY,
             title TEXT,
             message TEXT,
             created_by TEXT,
@@ -132,12 +193,12 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
-
 # ====================== PAGE SETUP ======================
 st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
 
-# Custom CSS with logo background attempt
+init_db()
+
+# Custom CSS
 st.markdown("""
 <style>
     .main-header {
@@ -176,12 +237,10 @@ if not st.session_state.logged_in:
             uname = st.text_input("Username").strip()
             pwd = st.text_input("Password", type="password").strip()
             if st.form_submit_button("Login", use_container_width=True):
-                conn = get_conn()
-                df = pd.read_sql_query(
-                    "SELECT * FROM staff WHERE LOWER(username)=? AND password=? AND role=? AND status='Active'",
-                    conn, params=(uname.lower(), pwd, role)
+                df = read_sql(
+                    "SELECT * FROM staff WHERE LOWER(username)=%s AND password=%s AND role=%s AND status='Active'",
+                    params=(uname.lower(), pwd, role)
                 )
-                conn.close()
                 if not df.empty:
                     rec = df.iloc[0]
                     st.session_state.logged_in = True
@@ -242,12 +301,11 @@ def allowed_subjects():
 # ====================== DASHBOARD ======================
 if menu == "Dashboard":
     st.markdown("<div class='main-header'><h2>📊 Administration Dashboard</h2></div>", unsafe_allow_html=True)
-    conn = get_conn()
 
-    active_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Active'", conn).iloc[0]["c"]
-    inactive_students = pd.read_sql_query("SELECT COUNT(*) as c FROM students WHERE status='Inactive'", conn).iloc[0]["c"]
-    total_paid = pd.read_sql_query("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE status='Paid'", conn).iloc[0]["t"]
-    active_staff = pd.read_sql_query("SELECT COUNT(*) as c FROM staff WHERE status='Active'", conn).iloc[0]["c"]
+    active_students = read_sql("SELECT COUNT(*) as c FROM students WHERE status='Active'").iloc[0]["c"]
+    inactive_students = read_sql("SELECT COUNT(*) as c FROM students WHERE status='Inactive'").iloc[0]["c"]
+    total_paid = read_sql("SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE status='Paid'").iloc[0]["t"]
+    active_staff = read_sql("SELECT COUNT(*) as c FROM staff WHERE status='Active'").iloc[0]["c"]
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Active Students", active_students)
@@ -256,19 +314,18 @@ if menu == "Dashboard":
     c4.metric("Active Staff", active_staff)
 
     st.subheader("Students per Class Level")
-    df = pd.read_sql_query("SELECT grade, COUNT(*) as total FROM students WHERE status='Active' GROUP BY grade", conn)
+    df = read_sql("SELECT grade, COUNT(*) as total FROM students WHERE status='Active' GROUP BY grade")
     if not df.empty:
         st.bar_chart(df.set_index("grade"))
     else:
         st.info("No active students yet")
 
     st.subheader("Recent Payments")
-    st.dataframe(pd.read_sql_query("""
+    st.dataframe(read_sql("""
         SELECT s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date
         FROM payments p JOIN students s ON p.student_id = s.student_id
         ORDER BY p.payment_id DESC LIMIT 15
-    """, conn), use_container_width=True)
-    conn.close()
+    """), use_container_width=True)
 
 # ====================== STUDENTS ======================
 elif menu == "Students":
@@ -279,14 +336,13 @@ elif menu == "Students":
     with tab1:
         grade = st.selectbox("Filter by Class Level", ["All"] + CLASS_LEVELS, key="stu_filter_grade")
         if grade == "All":
-            df = pd.read_sql_query(
-                "SELECT student_id, student_name, grade, gender, parent_name, parent_phone, parent_email, status FROM students WHERE status='Active' ORDER BY grade, student_name",
-                conn
+            df = read_sql(
+                "SELECT student_id, student_name, grade, gender, parent_name, parent_phone, parent_email, status FROM students WHERE status='Active' ORDER BY grade, student_name"
             )
         else:
-            df = pd.read_sql_query(
-                "SELECT student_id, student_name, grade, gender, parent_name, parent_phone, parent_email, status FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-                conn, params=(grade,)
+            df = read_sql(
+                "SELECT student_id, student_name, grade, gender, parent_name, parent_phone, parent_email, status FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+                params=(grade,)
             )
         st.dataframe(df, use_container_width=True)
 
@@ -302,7 +358,7 @@ elif menu == "Students":
             if st.form_submit_button("💾 Save Student"):
                 if name.strip():
                     conn.execute(
-                        "INSERT INTO students (student_name, grade, gender, parent_name, parent_phone, parent_email, status, created_at) VALUES (?,?,?,?,?,?,'Active',?)",
+                        "INSERT INTO students (student_name, grade, gender, parent_name, parent_phone, parent_email, status, created_at) VALUES (%s,%s,%s,%s,%s,%s,'Active',%s)",
                         (name.strip(), g, gender, pname.strip(), phone.strip(), email.strip(), str(datetime.date.today()))
                     )
                     conn.commit()
@@ -313,9 +369,7 @@ elif menu == "Students":
 
     with tab3:
         st.subheader("✏️ Edit Student Information")
-        all_students = pd.read_sql_query(
-            "SELECT * FROM students ORDER BY grade, student_name", conn
-        )
+        all_students = read_sql("SELECT * FROM students ORDER BY grade, student_name")
         if all_students.empty:
             st.info("No students available to edit.")
         else:
@@ -332,7 +386,6 @@ elif menu == "Students":
             )
             stu = all_students[all_students["student_id"] == selected_sid].iloc[0]
 
-            # Dynamic form key forces fields to refresh whenever a different student is chosen
             with st.form(key=f"edit_student_form_{selected_sid}"):
                 new_name = st.text_input("Student Full Name *", value=str(stu["student_name"] or ""))
                 c1, c2 = st.columns(2)
@@ -357,8 +410,8 @@ elif menu == "Students":
                     if new_name.strip():
                         conn.execute("""
                             UPDATE students
-                            SET student_name=?, grade=?, gender=?, parent_name=?, parent_phone=?, parent_email=?
-                            WHERE student_id=?
+                            SET student_name=%s, grade=%s, gender=%s, parent_name=%s, parent_phone=%s, parent_email=%s
+                            WHERE student_id=%s
                         """, (
                             new_name.strip(), new_grade, new_gender,
                             new_pname.strip(), new_phone.strip(), new_email.strip(),
@@ -371,12 +424,12 @@ elif menu == "Students":
                         st.error("Student Full Name cannot be empty.")
 
     with tab4:
-        df = pd.read_sql_query("SELECT student_id, student_name, grade, status FROM students ORDER BY grade, student_name", conn)
+        df = read_sql("SELECT student_id, student_name, grade, status FROM students ORDER BY grade, student_name")
         st.dataframe(df, use_container_width=True)
         sid = st.number_input("Student ID", min_value=1, step=1, key="status_stu_id")
         new_status = st.selectbox("New Status", ["Active", "Inactive"], key="status_stu_val")
         if st.button("Update Status"):
-            conn.execute("UPDATE students SET status=? WHERE student_id=?", (new_status, int(sid)))
+            conn.execute("UPDATE students SET status=%s WHERE student_id=%s", (new_status, int(sid)))
             conn.commit()
             st.success("Status updated – Inactive students are removed from active lists")
             st.rerun()
@@ -405,20 +458,21 @@ elif menu == "Staff & Teachers":
                     sub = ",".join(subjects) if subjects else "ALL"
                     try:
                         conn.execute(
-                            "INSERT INTO staff (full_name, role, username, password, phone, assigned_classes, assigned_subjects, status) VALUES (?,?,?,?,?,?,?,'Active')",
+                            "INSERT INTO staff (full_name, role, username, password, phone, assigned_classes, assigned_subjects, status) VALUES (%s,%s,%s,%s,%s,%s,%s,'Active')",
                             (name.strip(), role, uname.strip(), pwd.strip(), phone.strip(), cls, sub)
                         )
                         conn.commit()
                         st.success(f"Account created → Username: `{uname.strip()}` | Password: `{pwd.strip()}`")
                         st.rerun()
-                    except sqlite3.IntegrityError:
+                    except psycopg2.IntegrityError:
+                        conn.raw.rollback()
                         st.error("Username already exists.")
                 else:
                     st.error("Full Name and Username are required.")
 
     with tab2:
         st.subheader("✏️ Edit Staff / Teacher Details")
-        staff_df = pd.read_sql_query("SELECT * FROM staff ORDER BY full_name", conn)
+        staff_df = read_sql("SELECT * FROM staff ORDER BY full_name")
         if staff_df.empty:
             st.info("No staff accounts found.")
         else:
@@ -433,9 +487,8 @@ elif menu == "Staff & Teachers":
                 format_func=lambda x: staff_labels[x],
                 key="edit_staff_selector"
             )
-            stf = staff_df[staff_df["staff_id"] == selected_staff_id].iloc[0]
+            stf = next(iter(staff_df[staff_df["staff_id"] == selected_staff_id].to_dict("records")))
 
-            # Dynamic form key ensures all fields reload accurately for each staff member
             with st.form(key=f"edit_staff_form_{selected_staff_id}"):
                 ed_name = st.text_input("Full Name *", value=str(stf["full_name"] or ""))
                 role_opts = ["Teacher", "Register Officer", "Administration"]
@@ -461,8 +514,8 @@ elif menu == "Staff & Teachers":
                         try:
                             conn.execute("""
                                 UPDATE staff
-                                SET full_name=?, role=?, username=?, phone=?, assigned_classes=?, assigned_subjects=?
-                                WHERE staff_id=?
+                                SET full_name=%s, role=%s, username=%s, phone=%s, assigned_classes=%s, assigned_subjects=%s
+                                WHERE staff_id=%s
                             """, (
                                 ed_name.strip(), ed_role, ed_uname.strip(), ed_phone.strip(),
                                 cls_val, sub_val, int(selected_staff_id)
@@ -470,44 +523,44 @@ elif menu == "Staff & Teachers":
                             conn.commit()
                             st.success(f"Updated **{ed_name.strip()}** successfully!")
                             st.rerun()
-                        except sqlite3.IntegrityError:
+                        except psycopg2.IntegrityError:
+                            conn.raw.rollback()
                             st.error("That username is already taken by another account.")
                     else:
                         st.error("Full Name and Username cannot be empty.")
 
     with tab3:
-        tdf = pd.read_sql_query("SELECT username, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'", conn)
+        tdf = read_sql("SELECT username, full_name, assigned_classes, assigned_subjects FROM staff WHERE role='Teacher' AND status='Active'")
         st.dataframe(tdf, use_container_width=True)
         if not tdf.empty:
             sel = st.selectbox("Select Teacher", tdf["username"].tolist(), key="assign_teacher_sel")
             new_cls = st.multiselect("Classes", CLASS_LEVELS, key="assign_cls")
             new_sub = st.multiselect("Subjects", SUBJECT_LIST, key="assign_sub")
             if st.button("Update Assignment"):
-                conn.execute("UPDATE staff SET assigned_classes=?, assigned_subjects=? WHERE username=?",
+                conn.execute("UPDATE staff SET assigned_classes=%s, assigned_subjects=%s WHERE username=%s",
                              (",".join(new_cls) if new_cls else "NONE", ",".join(new_sub) if new_sub else "NONE", sel))
                 conn.commit()
                 st.success("Updated")
                 st.rerun()
 
     with tab4:
-        sdf = pd.read_sql_query("SELECT staff_id, full_name, role, username, status FROM staff", conn)
+        sdf = read_sql("SELECT staff_id, full_name, role, username, status FROM staff")
         st.dataframe(sdf, use_container_width=True)
         sid = st.number_input("Staff ID", min_value=1, step=1, key="manage_staff_id")
         new_pwd = st.text_input("New Password", value="123456", key="manage_staff_pwd")
         new_stat = st.selectbox("Status", ["Active", "Inactive"], key="manage_staff_stat")
         c1, c2 = st.columns(2)
         if c1.button("Update Password & Status"):
-            conn.execute("UPDATE staff SET password=?, status=? WHERE staff_id=?", (new_pwd, new_stat, int(sid)))
+            conn.execute("UPDATE staff SET password=%s, status=%s WHERE staff_id=%s", (new_pwd, new_stat, int(sid)))
             conn.commit()
             st.success("Updated")
             st.rerun()
         if c2.button("Delete Inactive Staff"):
-            conn.execute("DELETE FROM staff WHERE staff_id=? AND status='Inactive'", (int(sid),))
+            conn.execute("DELETE FROM staff WHERE staff_id=%s AND status='Inactive'", (int(sid),))
             conn.commit()
             st.success("Deleted if inactive")
             st.rerun()
     conn.close()
-
 
 # ====================== GRADES ======================
 elif menu == "Grades":
@@ -533,9 +586,9 @@ elif menu == "Grades":
         max_score = col_m.number_input("Out Of (Maximum Marks)", min_value=1.0, value=20.0, step=1.0, key="gr_max")
         assess_date = col_d.date_input("Assessment Date", value=datetime.date.today(), key="gr_date")
 
-        students = pd.read_sql_query(
-            "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-            conn, params=(sel_class,)
+        students = read_sql(
+            "SELECT student_id, student_name FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+            params=(sel_class,)
         )
 
         if students.empty:
@@ -564,7 +617,7 @@ elif menu == "Grades":
                     for sid, val in entries:
                         cur.execute("""
                             INSERT INTO grades (student_id, subject, assessment_type, score, max_score, term, date, teacher)
-                            VALUES (?,?,?,?,?,?,?,?)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                         """, (sid, sel_subj, sel_type, val, max_score, sel_term, str(assess_date), st.session_state.user_name))
                     conn.commit()
                     st.success(f"Saved {len(entries)} scores ({sel_subj} - {sel_type})! Totals updated automatically.")
@@ -581,9 +634,9 @@ elif menu == "Grades":
             l_term = lc2.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="lang_term")
             l_lang = lc3.selectbox("Language", ["English", "Kinyarwanda"], key="lang_choice")
 
-            l_students = pd.read_sql_query(
-                "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-                conn, params=(l_class,)
+            l_students = read_sql(
+                "SELECT student_id, student_name FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+                params=(l_class,)
             )
             skill_levels = ["Excellent", "Very Good", "Good", "Needs Improvement"]
 
@@ -606,9 +659,9 @@ elif menu == "Grades":
                         for sid, sp, rd, wr in skill_rows:
                             cur.execute("""
                                 INSERT INTO language_skills (student_id, term, language, speaking, reading, writing, teacher)
-                                VALUES (?,?,?,?,?,?,?)
+                                VALUES (%s,%s,%s,%s,%s,%s,%s)
                                 ON CONFLICT(student_id, term, language)
-                                DO UPDATE SET speaking=excluded.speaking, reading=excluded.reading, writing=excluded.writing, teacher=excluded.teacher
+                                DO UPDATE SET speaking=EXCLUDED.speaking, reading=EXCLUDED.reading, writing=EXCLUDED.writing, teacher=EXCLUDED.teacher
                             """, (sid, l_term, l_lang, sp, rd, wr, st.session_state.user_name))
                         conn.commit()
                         st.success(f"Saved {l_lang} skills for {l_class} ({l_term})!")
@@ -620,24 +673,24 @@ elif menu == "Grades":
         p_class = p_c1.selectbox("Class", classes, key="tot_cls")
         p_term = p_c2.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="tot_term")
 
-        p_students = pd.read_sql_query(
-            "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-            conn, params=(p_class,)
+        p_students = read_sql(
+            "SELECT student_id, student_name FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+            params=(p_class,)
         )
         if not p_students.empty:
             sel_p_stu = st.selectbox("Select Student", p_students["student_name"].tolist(), key="tot_stu")
-            psid = int(p_students[p_students["student_name"] == sel_p_stu].iloc["student_id"])
+            psid = int(p_students[p_students["student_name"] == sel_p_stu].iloc[0]["student_id"])
 
-            tot_df = pd.read_sql_query("""
-                SELECT subject AS Subject,
-                       COUNT(*) AS Assessments,
-                       SUM(score) AS Total_Score,
-                       SUM(max_score) AS Total_Out_Of,
-                       ROUND(SUM(score) * 100.0 / SUM(max_score), 1) AS Percentage
+            tot_df = read_sql("""
+                SELECT subject AS "Subject",
+                       COUNT(*) AS "Assessments",
+                       SUM(score) AS "Total_Score",
+                       SUM(max_score) AS "Total_Out_Of",
+                       ROUND((SUM(score) * 100.0 / SUM(max_score))::numeric, 1) AS "Percentage"
                 FROM grades
-                WHERE student_id=? AND term=?
+                WHERE student_id=%s AND term=%s
                 GROUP BY subject
-            """, conn, params=(psid, p_term))
+            """, params=(psid, p_term))
 
             if tot_df.empty:
                 st.info("No assessments recorded yet for this student in this term.")
@@ -645,13 +698,13 @@ elif menu == "Grades":
                 tot_df["Result"] = tot_df.apply(lambda r: f"{r['Total_Score']:.1f} / {r['Total_Out_Of']:.1f}", axis=1)
                 st.dataframe(tot_df[["Subject", "Assessments", "Result", "Percentage"]], use_container_width=True)
 
-                raw_prog = pd.read_sql_query("""
-                    SELECT date, subject, ROUND(score * 100.0 / max_score, 1) AS pct
-                    FROM grades WHERE student_id=? AND term=? ORDER BY date ASC
-                """, conn, params=(psid, p_term))
+                raw_prog = read_sql("""
+                    SELECT date, subject, ROUND((score * 100.0 / max_score)::numeric, 1) AS pct
+                    FROM grades WHERE student_id=%s AND term=%s ORDER BY date ASC
+                """, params=(psid, p_term))
                 st.line_chart(raw_prog.pivot_table(index="date", columns="subject", values="pct", aggfunc="mean"))
     conn.close()
-# ====================== ATTENDANCE ======================
+    # ====================== ATTENDANCE ======================
 elif menu == "Attendance":
     st.header("📅 Daily Attendance")
     conn = get_conn()
@@ -662,18 +715,17 @@ elif menu == "Attendance":
     att_date = col2.date_input("Date", value=datetime.date.today(), key="att_date")
     date_str = str(att_date)
 
-    students = pd.read_sql_query(
-        "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-        conn, params=(sel_class,)
+    students = read_sql(
+        "SELECT student_id, student_name FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+        params=(sel_class,)
     )
 
     if students.empty:
         st.warning("No active students in this class.")
     else:
-        # Load existing attendance safely (drop_duplicates prevents ValueError if old duplicates exist)
-        existing_df = pd.read_sql_query(
-            "SELECT student_id, status, notes FROM attendance WHERE date=? ORDER BY attendance_id ASC",
-            conn, params=(date_str,)
+        existing_df = read_sql(
+            "SELECT student_id, status, notes FROM attendance WHERE date=%s ORDER BY attendance_id ASC",
+            params=(date_str,)
         ).drop_duplicates(subset=["student_id"], keep="last")
         existing = existing_df.set_index("student_id").to_dict("index")
 
@@ -707,27 +759,25 @@ elif menu == "Attendance":
             if st.form_submit_button("💾 Save Attendance", use_container_width=True):
                 c = conn.cursor()
                 for sid, status, notes in records:
-                    # Clean up any old duplicate rows for this student & date, then insert/update cleanly
                     c.execute(
-                        "SELECT attendance_id FROM attendance WHERE student_id=? AND date=? ORDER BY attendance_id ASC",
+                        "SELECT attendance_id FROM attendance WHERE student_id=%s AND date=%s ORDER BY attendance_id ASC",
                         (sid, date_str)
                     )
                     rows = c.fetchall()
                     if rows:
                         keep_id = rows[-1][0]
-                        # Delete extra duplicates if any existed
                         if len(rows) > 1:
                             c.execute(
-                                "DELETE FROM attendance WHERE student_id=? AND date=? AND attendance_id != ?",
+                                "DELETE FROM attendance WHERE student_id=%s AND date=%s AND attendance_id != %s",
                                 (sid, date_str, keep_id)
                             )
                         c.execute(
-                            "UPDATE attendance SET status=?, notes=?, teacher=? WHERE attendance_id=?",
+                            "UPDATE attendance SET status=%s, notes=%s, teacher=%s WHERE attendance_id=%s",
                             (status, notes, st.session_state.user_name, keep_id)
                         )
                     else:
                         c.execute(
-                            "INSERT INTO attendance (student_id, date, status, teacher, notes) VALUES (?,?,?,?,?)",
+                            "INSERT INTO attendance (student_id, date, status, teacher, notes) VALUES (%s,%s,%s,%s,%s)",
                             (sid, date_str, status, st.session_state.user_name, notes)
                         )
                 conn.commit()
@@ -735,28 +785,86 @@ elif menu == "Attendance":
                 st.rerun()
 
         st.subheader("Attendance History for Class")
-        hist = pd.read_sql_query("""
+        hist = read_sql("""
             SELECT a.date, s.student_name, a.status, a.notes, a.teacher
             FROM attendance a
             JOIN students s ON a.student_id = s.student_id
-            WHERE s.grade = ?
+            WHERE s.grade = %s
             ORDER BY a.date DESC, s.student_name
-        """, conn, params=(sel_class,))
+        """, params=(sel_class,))
         st.dataframe(hist, use_container_width=True)
     conn.close()
-
 # ====================== PAYMENTS ======================
 elif menu == "Payments":
-    st.header("💳 School Fees & Payments")
+    st.header("💳 School Fees, Petty Cash Expenses & Monthly Budget")
     conn = get_conn()
 
-    tab1, tab2, tab3 = st.tabs(["Record Payment", "Payment Records", "Update Payment Status"])
+    # Ensure expenses and monthly_budgets tables exist in Neon PostgreSQL
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS expenses (
+            expense_id SERIAL PRIMARY KEY,
+            month_year TEXT NOT NULL,
+            budget_line TEXT NOT NULL,
+            amount REAL NOT NULL,
+            description TEXT,
+            expense_date TEXT,
+            recorded_by TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS monthly_budgets (
+            budget_id SERIAL PRIMARY KEY,
+            month_year TEXT NOT NULL,
+            budget_line TEXT NOT NULL,
+            planned_amount REAL NOT NULL DEFAULT 0,
+            notes TEXT,
+            updated_by TEXT,
+            UNIQUE(month_year, budget_line)
+        )
+    """)
+    conn.commit()
 
+    BUDGET_LINES = [
+        "001. Graduation",
+        "002. Students rewards",
+        "003. Students motivation",
+        "004. Printer ink",
+        "005. Ream of paper",
+        "006. Salary for safe walker",
+        "007. Salaries for the teacher",
+        "008. Salaries for the cleaner & security",
+        "009. Savings",
+        "010. Books",
+        "011. Printing",
+        "012. Cost of service",
+        "013. Electricity",
+        "014. Internet",
+        "015. Transport",
+        "016. Founders Share",
+        "017. Withdrawal Cost",
+        "018. Purchase of materials",
+        "019. Chalks",
+        "020. Rent",
+        "021. Professional cost",
+        "022. Connections",
+        "023. Bulbs",
+        "024. Cleaning materials",
+        "025. Renovations"
+    ]
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "Record Payment",
+        "Payment Records",
+        "Update Payment Status",
+        "💸 Petty Cash & Monthly Expenses",
+        "📊 Monthly Budget & Summary"
+    ])
+# -------------------- TAB 1: RECORD STUDENT PAYMENT --------------------
     with tab1:
         sel_class = st.selectbox("Select Class", CLASS_LEVELS, key="pay_class")
-        students = pd.read_sql_query(
-            "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-            conn, params=(sel_class,)
+        students = read_sql(
+            "SELECT student_id, student_name FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+            params=(sel_class,)
         )
 
         if students.empty:
@@ -769,10 +877,9 @@ elif menu == "Payments":
             sel_student_label = st.selectbox("Select Student", list(student_dict.keys()), key="pay_student")
             sid = student_dict[sel_student_label]
 
-            # Display already recorded months for this student
-            paid_months_df = pd.read_sql_query(
-                "SELECT month_year, amount, status, paid_date FROM payments WHERE student_id=? ORDER BY month_year ASC",
-                conn, params=(sid,)
+            paid_months_df = read_sql(
+                "SELECT month_year, amount, status, paid_date FROM payments WHERE student_id=%s ORDER BY month_year ASC",
+                params=(sid,)
             )
             if not paid_months_df.empty:
                 recorded_list = [
@@ -782,7 +889,6 @@ elif menu == "Payments":
 
             with st.form("payment_form"):
                 col1, col2 = st.columns(2)
-                # Dropdown showing current & future months (2026-11 to 2030-12)
                 month_year = col1.selectbox("Select Month (Current or Future)", PAYMENT_MONTHS)
                 amount = col2.number_input("Amount (RWF)", min_value=0, value=MONTHLY_FEE, step=500)
 
@@ -793,7 +899,7 @@ elif menu == "Payments":
                 if st.form_submit_button("💾 Record Payment", use_container_width=True):
                     cur = conn.cursor()
                     cur.execute(
-                        "SELECT payment_id, status FROM payments WHERE student_id=? AND month_year=?",
+                        "SELECT payment_id, status FROM payments WHERE student_id=%s AND month_year=%s",
                         (sid, month_year)
                     )
                     existing_pay = cur.fetchone()
@@ -807,14 +913,15 @@ elif menu == "Payments":
                         try:
                             cur.execute("""
                                 INSERT INTO payments (student_id, month_year, amount, status, paid_date, recorded_by)
-                                VALUES (?,?,?,?,?,?)
+                                VALUES (%s,%s,%s,%s,%s,%s)
                             """, (sid, month_year, amount, status, str(paid_date), st.session_state.user_name))
                             conn.commit()
                             st.success(f"Payment recorded for **{sel_student_label}** for **{month_year}**!")
                             st.rerun()
-                        except sqlite3.IntegrityError:
+                        except psycopg2.IntegrityError:
+                            conn.raw.rollback()
                             st.error(f"⚠️ Duplicate blocked: **{sel_student_label}** already has a payment for **{month_year}**.")
-
+# -------------------- TAB 2: PAYMENT RECORDS --------------------
     with tab2:
         c1, c2 = st.columns(2)
         filter_month = c1.selectbox("Filter by Month", ["All"] + PAYMENT_MONTHS, key="filter_pay_month")
@@ -828,24 +935,25 @@ elif menu == "Payments":
         """
         params = []
         if filter_month != "All":
-            query += " AND p.month_year = ?"
+            query += " AND p.month_year = %s"
             params.append(filter_month)
         if filter_status != "All":
-            query += " AND p.status = ?"
+            query += " AND p.status = %s"
             params.append(filter_status)
 
         query += " ORDER BY p.month_year DESC, s.grade, s.student_name"
-        pay_df = pd.read_sql_query(query, conn, params=params)
+        pay_df = read_sql(query, params=params if params else None)
         st.dataframe(pay_df, use_container_width=True)
 
+    # -------------------- TAB 3: UPDATE PAYMENT STATUS --------------------
     with tab3:
         st.subheader("✏️ Update Existing Payment Record")
-        all_pays = pd.read_sql_query("""
+        all_pays = read_sql("""
             SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date
             FROM payments p
             JOIN students s ON p.student_id = s.student_id
             ORDER BY p.payment_id DESC
-        """, conn)
+        """)
 
         if all_pays.empty:
             st.info("No payment records available to update.")
@@ -869,47 +977,253 @@ elif menu == "Payments":
 
                 if st.form_submit_button("Update Payment"):
                     conn.execute(
-                        "UPDATE payments SET amount=?, status=?, paid_date=?, recorded_by=? WHERE payment_id=?",
+                        "UPDATE payments SET amount=%s, status=%s, paid_date=%s, recorded_by=%s WHERE payment_id=%s",
                         (upd_amount, upd_status, str(upd_date), st.session_state.user_name, int(rec["payment_id"]))
                     )
                     conn.commit()
                     st.success("Payment record updated!")
                     st.rerun()
+# -------------------- TAB 4: PETTY CASH & MONTHLY EXPENSES --------------------
+    with tab4:
+        st.subheader("💸 Petty Cash & Monthly Expenses Room")
+        exp_month = st.selectbox("Select Month", PAYMENT_MONTHS, key="petty_cash_month")
+
+        # Automatic monthly calculation: Total Collected vs Total Expenses Deducted
+        collected_df = read_sql(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
+            params=(exp_month,)
+        )
+        month_collected = float(collected_df["total"].iat[0])
+
+        expenses_sum_df = read_sql(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE month_year=%s",
+            params=(exp_month,)
+        )
+        month_expenses = float(expenses_sum_df["total"].iat[0])
+        net_remaining = month_collected - month_expenses
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric(f"Total Collected ({exp_month})", f"{month_collected:,.0f} RWF")
+        m2.metric(f"Total Expenses Deducted ({exp_month})", f"- {month_expenses:,.0f} RWF")
+        m3.metric(
+            f"Net Balance After Expenses ({exp_month})",
+            f"{net_remaining:,.0f} RWF",
+            delta=f"{net_remaining:,.0f} RWF"
+        )
+
+        if net_remaining < 0:
+            st.warning(f"⚠️ Expenses for **{exp_month}** exceed collected fees by **{abs(net_remaining):,.0f} RWF**.")
+
+        st.divider()
+        st.write(f"### Record Petty Cash Expense for **{exp_month}**")
+        with st.form("record_expense_form", clear_on_submit=True):
+            ec1, ec2 = st.columns(2)
+            sel_budget_line = ec1.selectbox("Select Budget Line *", BUDGET_LINES)
+            exp_amount = ec2.number_input("Expense Amount (RWF) *", min_value=0.0, value=0.0, step=500.0)
+
+            ec3, ec4 = st.columns(2)
+            exp_date = ec3.date_input("Expense Date", value=datetime.date.today())
+            exp_desc = ec4.text_input("Details / Receipt Note", placeholder="e.g., Bought 5 boxes of white chalk...")
+
+            if st.form_submit_button("💾 Deduct & Save Expense", use_container_width=True):
+                if exp_amount > 0:
+                    conn.execute("""
+                        INSERT INTO expenses (month_year, budget_line, amount, description, expense_date, recorded_by)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (
+                        exp_month,
+                        sel_budget_line,
+                        float(exp_amount),
+                        exp_desc.strip(),
+                        str(exp_date),
+                        st.session_state.user_name
+                    ))
+                    conn.commit()
+                    st.success(
+                        f"Deducted **{exp_amount:,.0f} RWF** under **{sel_budget_line}** "
+                        f"from **{exp_month}** collected funds!"
+                    )
+                    st.rerun()
+                else:
+                    st.error("Please enter an expense amount greater than 0 RWF.")
+
+        st.subheader(f"Recorded Petty Cash Expenses — {exp_month}")
+        month_exp_df = read_sql("""
+            SELECT expense_id, budget_line, amount, description, expense_date, recorded_by
+            FROM expenses
+            WHERE month_year=%s
+            ORDER BY expense_id DESC
+        """, params=(exp_month,))
+
+        if month_exp_df.empty:
+            st.info(f"No petty cash expenses recorded for {exp_month} yet.")
+        else:
+            st.dataframe(month_exp_df, use_container_width=True)
+
+            # Option for Administration to remove an erroneous expense entry
+            if st.session_state.user_role == "Administration":
+                with st.expander("🗑️ Delete an Expense Entry"):
+                    del_exp_id = st.number_input("Enter Expense ID to Delete", min_value=1, step=1, key="del_exp_id")
+                    if st.button("Delete Expense", key="btn_del_exp"):
+                        conn.execute("DELETE FROM expenses WHERE expense_id=%s AND month_year=%s", (int(del_exp_id), exp_month))
+                        conn.commit()
+                        st.success(f"Expense #{int(del_exp_id)} deleted and balance restored.")
+                        st.rerun()
+ # -------------------- TAB 5: MONTHLY BUDGET & FINANCIAL SUMMARY --------------------
+    with tab5:
+        st.subheader("📊 Monthly Budget Planning & Financial Summary")
+        bud_month = st.selectbox("Select Month to Plan / Review", PAYMENT_MONTHS, key="budget_plan_month")
+
+        # Fetch monthly totals
+        b_coll_df = read_sql(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
+            params=(bud_month,)
+        )
+        b_collected = float(b_coll_df["total"].iat[0])
+
+        b_exp_df = read_sql(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE month_year=%s",
+            params=(bud_month,)
+        )
+        b_spent = float(b_exp_df["total"].iat[0])
+
+        b_plan_df = read_sql(
+            "SELECT COALESCE(SUM(planned_amount), 0) AS total FROM monthly_budgets WHERE month_year=%s",
+            params=(bud_month,)
+        )
+        b_planned_total = float(b_plan_df["total"].iat[0])
+        b_net_cash = b_collected - b_spent
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Fees Collected", f"{b_collected:,.0f} RWF")
+        k2.metric("Planned Budget", f"{b_planned_total:,.0f} RWF")
+        k3.metric("Actual Expenses", f"{b_spent:,.0f} RWF")
+        k4.metric("Net Balance", f"{b_net_cash:,.0f} RWF")
+
+        st.divider()
+        st.write(f"### Set / Update Planned Budget Line for **{bud_month}**")
+        with st.form("monthly_budget_form", clear_on_submit=True):
+            bc1, bc2 = st.columns(2)
+            plan_line = bc1.selectbox("Budget Line *", BUDGET_LINES, key="plan_budget_line")
+            plan_amt = bc2.number_input("Planned Budget Amount (RWF) *", min_value=0.0, value=0.0, step=1000.0)
+            plan_note = st.text_input("Budget Planning Note (Optional)", placeholder="e.g., Monthly allocation based on expected expenses...")
+
+            if st.form_submit_button("💾 Save Monthly Budget Allocation", use_container_width=True):
+                conn.execute("""
+                    INSERT INTO monthly_budgets (month_year, budget_line, planned_amount, notes, updated_by)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (month_year, budget_line)
+                    DO UPDATE SET
+                        planned_amount = EXCLUDED.planned_amount,
+                        notes = EXCLUDED.notes,
+                        updated_by = EXCLUDED.updated_by
+                """, (bud_month, plan_line, float(plan_amt), plan_note.strip(), st.session_state.user_name))
+                conn.commit()
+                st.success(f"Saved budget plan of **{plan_amt:,.0f} RWF** for **{plan_line}** ({bud_month})!")
+                st.rerun()
+
+        st.subheader(f"Budget vs. Actual Expenses Breakdown — {bud_month}")
+        planned_rows = read_sql(
+            "SELECT budget_line, planned_amount, notes FROM monthly_budgets WHERE month_year=%s",
+            params=(bud_month,)
+        )
+        actual_rows = read_sql(
+            "SELECT budget_line, COALESCE(SUM(amount), 0) AS actual_spent FROM expenses WHERE month_year=%s GROUP BY budget_line",
+            params=(bud_month,)
+        )
+
+        planned_map = dict(zip(planned_rows["budget_line"], planned_rows["planned_amount"])) if not planned_rows.empty else {}
+        notes_map = dict(zip(planned_rows["budget_line"], planned_rows["notes"])) if not planned_rows.empty else {}
+        actual_map = dict(zip(actual_rows["budget_line"], actual_rows["actual_spent"])) if not actual_rows.empty else {}
+
+        summary_data = []
+        for line in BUDGET_LINES:
+            p_val = float(planned_map.get(line, 0.0))
+            a_val = float(actual_map.get(line, 0.0))
+            rem_val = p_val - a_val
+            summary_data.append({
+                "Budget Line": line,
+                "Planned Budget (RWF)": p_val,
+                "Actual Expenses (RWF)": a_val,
+                "Remaining Budget (RWF)": rem_val,
+                "Notes": notes_map.get(line, "")
+            })
+
+        summary_df = pd.DataFrame(summary_data)
+        st.dataframe(summary_df, use_container_width=True)
+
+        st.subheader("All-Months Financial Overview (Collected vs. Expenses)")
+        all_months_overview = read_sql("""
+            WITH months AS (
+                SELECT DISTINCT month_year FROM payments
+                UNION
+                SELECT DISTINCT month_year FROM expenses
+                UNION
+                SELECT DISTINCT month_year FROM monthly_budgets
+            ),
+            p_tot AS (
+                SELECT month_year, COALESCE(SUM(amount), 0) AS collected
+                FROM payments
+                WHERE status = 'Paid'
+                GROUP BY month_year
+            ),
+            e_tot AS (
+                SELECT month_year, COALESCE(SUM(amount), 0) AS expenses
+                FROM expenses
+                GROUP BY month_year
+            ),
+            b_tot AS (
+                SELECT month_year, COALESCE(SUM(planned_amount), 0) AS budgeted
+                FROM monthly_budgets
+                GROUP BY month_year
+            )
+            SELECT
+                m.month_year AS "Month",
+                COALESCE(p.collected, 0) AS "Collected (RWF)",
+                COALESCE(b.budgeted, 0) AS "Planned Budget (RWF)",
+                COALESCE(e.expenses, 0) AS "Total Expenses (RWF)",
+                (COALESCE(p.collected, 0) - COALESCE(e.expenses, 0)) AS "Net Balance (RWF)"
+            FROM months m
+            LEFT JOIN p_tot p ON m.month_year = p.month_year
+            LEFT JOIN e_tot e ON m.month_year = e.month_year
+            LEFT JOIN b_tot b ON m.month_year = b.month_year
+            ORDER BY m.month_year DESC
+        """)
+        if not all_months_overview.empty:
+            st.dataframe(all_months_overview, use_container_width=True)
 
     conn.close()
 # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
     st.header("📄 Report Cards")
-    conn = get_conn()
     classes = allowed_classes() if st.session_state.user_role == "Teacher" else CLASS_LEVELS
 
     tab1, tab2 = st.tabs(["Single Student", "Whole Class / Level"])
 
     with tab1:
         grade = st.selectbox("Class Level", classes, key="rc1")
-        students = pd.read_sql_query(
-            "SELECT * FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-            conn, params=(grade,)
+        students = read_sql(
+            "SELECT * FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+            params=(grade,)
         )
         if not students.empty:
             name = st.selectbox("Student", students["student_name"].tolist())
             term = st.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="term1")
-            student = students[students["student_name"] == name].iloc[0]
-            grades_df = pd.read_sql_query(
-                "SELECT * FROM grades WHERE student_id=? AND term=?",
-                conn, params=(int(student["student_id"]), term)
+            student = next(iter(students[students["student_name"] == name].to_dict("records")))
+            grades_df = read_sql(
+                "SELECT * FROM grades WHERE student_id=%s AND term=%s",
+                params=(int(student["student_id"]), term)
             )
 
             if grades_df.empty:
                 st.info("No grades recorded for this term")
             else:
-                # Calculate rank
-                all_students = pd.read_sql_query(
-                    "SELECT student_id FROM students WHERE grade=? AND status='Active'", conn, params=(grade,)
+                all_students = read_sql(
+                    "SELECT student_id FROM students WHERE grade=%s AND status='Active'", params=(grade,)
                 )
                 averages = []
                 for sid in all_students["student_id"]:
-                    gdf = pd.read_sql_query("SELECT score, max_score FROM grades WHERE student_id=? AND term=?", conn, params=(int(sid), term))
+                    gdf = read_sql("SELECT score, max_score FROM grades WHERE student_id=%s AND term=%s", params=(int(sid), term))
                     if not gdf.empty:
                         avg = (gdf["score"] / gdf["max_score"] * 100).mean()
                         averages.append({"student_id": sid, "avg": avg})
@@ -959,7 +1273,7 @@ elif menu == "Report Cards":
                 overall = (total_score / total_max * 100) if total_max else 0
                 data.append(["AVERAGE", "", f"{total_score:.1f}", f"{total_max:.1f}", f"{overall:.1f}%"])
 
-                t = Table(data, colWidths=[120, 90, 60, 60, 60])
+                t = Table(data, colWidths=(120, 90, 60, 60, 60))
                 t.setStyle(TableStyle([
                     ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0B6E4F")),
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -983,15 +1297,12 @@ elif menu == "Report Cards":
         st.info("Select a class and term. You can download report cards one by one from the list below (full batch download will be improved later).")
         grade2 = st.selectbox("Class Level", classes, key="rc2")
         term2 = st.selectbox("Term", ["Term 1", "Term 2", "Term 3"], key="term2")
-        class_students = pd.read_sql_query(
-            "SELECT student_id, student_name FROM students WHERE grade=? AND status='Active' ORDER BY student_name",
-            conn, params=(grade2,)
+        class_students = read_sql(
+            "SELECT student_id, student_name FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+            params=(grade2,)
         )
         st.write(f"Active students in {grade2}: {len(class_students)}")
         st.dataframe(class_students, use_container_width=True)
-
-    conn.close()
-
 # ====================== CODE OF CONDUCT ======================
 elif menu == "Code of Conduct":
     st.header("📜 School Code of Conduct")
@@ -1030,7 +1341,7 @@ elif menu == "Permission & Emergency":
             if st.form_submit_button("Submit Permission Request"):
                 conn = get_conn()
                 conn.execute(
-                    "INSERT INTO messages (sender_name, sender_role, recipient, subject, message, created_at) VALUES (?,?,?,?,?,?)",
+                    "INSERT INTO messages (sender_name, sender_role, recipient, subject, message, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
                     (st.session_state.user_name, st.session_state.user_role, "Administration",
                      f"Permission Request - {student_name}", f"Reason: {reason}\n{details}", str(datetime.datetime.now()))
                 )
@@ -1046,7 +1357,7 @@ elif menu == "Permission & Emergency":
             if st.form_submit_button("Submit Emergency Report"):
                 conn = get_conn()
                 conn.execute(
-                    "INSERT INTO messages (sender_name, sender_role, recipient, subject, message, created_at) VALUES (?,?,?,?,?,?)",
+                    "INSERT INTO messages (sender_name, sender_role, recipient, subject, message, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
                     (st.session_state.user_name, st.session_state.user_role, "Administration",
                      f"EMERGENCY - {emerg_type}", details, str(datetime.datetime.now()))
                 )
@@ -1065,7 +1376,7 @@ elif menu == "Notifications":
             msg = st.text_area("Message to Teachers / Staff")
             if st.form_submit_button("Send Notification"):
                 conn.execute(
-                    "INSERT INTO notifications (title, message, created_by, created_at) VALUES (?,?,?,?)",
+                    "INSERT INTO notifications (title, message, created_by, created_at) VALUES (%s,%s,%s,%s)",
                     (title, msg, st.session_state.user_name, str(datetime.datetime.now()))
                 )
                 conn.commit()
@@ -1073,9 +1384,8 @@ elif menu == "Notifications":
                 st.rerun()
 
     st.subheader("All Notifications")
-    st.dataframe(pd.read_sql_query("SELECT * FROM notifications ORDER BY notif_id DESC", conn), use_container_width=True)
+    st.dataframe(read_sql("SELECT * FROM notifications ORDER BY notif_id DESC"), use_container_width=True)
     conn.close()
-
 # ====================== MESSAGES ======================
 elif menu == "Messages":
     st.header("💬 Messages")
@@ -1086,21 +1396,19 @@ elif menu == "Messages":
         body = st.text_area("Message")
         if st.form_submit_button("Send") and body.strip():
             conn.execute(
-                "INSERT INTO messages (sender_name, sender_role, recipient, subject, message, created_at) VALUES (?,?,?,?,?,?)",
+                "INSERT INTO messages (sender_name, sender_role, recipient, subject, message, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
                 (st.session_state.user_name, st.session_state.user_role, recipient, subject, body, str(datetime.datetime.now()))
             )
             conn.commit()
-            st.success("Message sent") 
+            st.success("Message sent")
             st.rerun()
-    st.dataframe(pd.read_sql_query("SELECT * FROM messages ORDER BY msg_id DESC LIMIT 50", conn), use_container_width=True)
+    st.dataframe(read_sql("SELECT * FROM messages ORDER BY msg_id DESC LIMIT 50"), use_container_width=True)
     conn.close()
 
 # ====================== REMOVED RECORDS ======================
 elif menu == "Removed Records":
     st.header("🗑️ Removed / Inactive Records")
-    conn = get_conn()
     st.subheader("Inactive Students")
-    st.dataframe(pd.read_sql_query("SELECT * FROM students WHERE status='Inactive'", conn), use_container_width=True)
+    st.dataframe(read_sql("SELECT * FROM students WHERE status='Inactive'"), use_container_width=True)
     st.subheader("Inactive Staff")
-    st.dataframe(pd.read_sql_query("SELECT * FROM staff WHERE status='Inactive'", conn), use_container_width=True)
-    conn.close()
+    st.dataframe(read_sql("SELECT * FROM staff WHERE status='Inactive'"), use_container_width=True)
