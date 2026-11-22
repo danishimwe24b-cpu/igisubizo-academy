@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import psycopg2
-from sqlalchemy import create_engine 
+
 import datetime
 import io
 import os
@@ -40,11 +40,8 @@ def get_db_url():
     return url
 
 @st.cache_resource
-def get_engine():
-    return create_engine(get_db_url(), pool_pre_ping=True)
-
 class NeonConnWrapper:
-    """Wraps psycopg2 connection so existing .execute() calls and pandas queries work cleanly."""
+    """Wraps psycopg2 connection so existing .execute() calls work cleanly."""
     def __init__(self):
         self.raw = psycopg2.connect(get_db_url())
 
@@ -70,12 +67,21 @@ def get_conn():
     return NeonConnWrapper()
 
 def read_sql(query, params=None):
-    """Helper for pandas read_sql_query using SQLAlchemy engine and %s placeholders."""
-    engine = get_engine()
-    query_pg = query.replace("?", "%s")
-    if params is not None:
-        return pd.read_sql_query(query_pg, engine, params=tuple(params))
-    return pd.read_sql_query(query_pg, engine)
+    """Reads data directly using psycopg2 without needing SQLAlchemy."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        cur = conn.cursor()
+        query_pg = query.replace("?", "%s")
+        if params is not None:
+            cur.execute(query_pg, tuple(params))
+        else:
+            cur.execute(query_pg)
+        cols = [desc[0] for desc in cur.description] if cur.description else []
+        rows = cur.fetchall()
+        return pd.DataFrame(rows, columns=cols)
+    finally:
+        conn.close()
+
 
 def init_db():
     conn = get_conn()
