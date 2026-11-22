@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 import datetime
-import io
+import io 
 import os
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, HRFlowable
