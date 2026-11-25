@@ -39,6 +39,7 @@ def get_db_url():
         url = url.replace("&channel_binding=require", "")
     return url
 
+
 class NeonConnWrapper:
     """Wraps a fresh psycopg2 connection so existing .execute() calls work cleanly."""
     def __init__(self):
@@ -62,16 +63,83 @@ class NeonConnWrapper:
         if not self.raw.closed:
             self.raw.commit()
 
-        def close(self):
+    def close(self):
         if not self.raw.closed:
             self.raw.close()
+
 
 def get_conn():
     return NeonConnWrapper()
 
-def ensure_attendance_and_lesson_tables():
+
+def read_sql(query, params=None):
+    """Reads data directly using a fresh psycopg2 connection."""
+    conn = psycopg2.connect(get_db_url())
+    try:
+        sql_pg = query.replace("?", "%s")
+        return pd.read_sql_query(sql_pg, conn, params=params)
+    finally:
+        conn.close()
+
+
+def init_db():
     conn = get_conn()
     c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS staff (
+            staff_id SERIAL PRIMARY KEY,
+            full_name TEXT NOT NULL,
+            role TEXT NOT NULL,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            phone TEXT,
+            assigned_classes TEXT,
+            assigned_subjects TEXT,
+            status TEXT DEFAULT 'Active'
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS students (
+            student_id SERIAL PRIMARY KEY,
+            student_name TEXT NOT NULL,
+            gender TEXT,
+            dob TEXT,
+            grade TEXT NOT NULL,
+            parent_name TEXT,
+            parent_phone TEXT,
+            address TEXT,
+            enrollment_date TEXT,
+            status TEXT DEFAULT 'Active'
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS grades (
+            grade_id SERIAL PRIMARY KEY,
+            student_id INTEGER REFERENCES students(student_id),
+            subject TEXT,
+            term TEXT,
+            exam_type TEXT,
+            score REAL,
+            max_score REAL DEFAULT 100,
+            teacher TEXT,
+            date_recorded TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS attendance (
+            attendance_id SERIAL PRIMARY KEY,
+            student_id INTEGER REFERENCES students(student_id),
+            date TEXT,
+            status TEXT,
+            teacher TEXT,
+            notes TEXT
+        )
+    """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS teacher_attendance (
             attendance_id SERIAL PRIMARY KEY,
@@ -83,8 +151,9 @@ def ensure_attendance_and_lesson_tables():
             notes TEXT,
             recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (teacher_name, date)
-        );
+        )
     """)
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS lesson_reports (
             report_id SERIAL PRIMARY KEY,
@@ -103,123 +172,54 @@ def ensure_attendance_and_lesson_tables():
             next_steps TEXT,
             prepared_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (teacher_name, grade, subject, lesson_date)
-        );
-    """)
-    conn.commit()
-    conn.close()
-
-ensure_attendance_and_lesson_tables()
-
-def read_sql(query, params=None):
-    """Reads data directly using a fresh psycopg2 connection."""
-    conn = psycopg2.connect(get_db_url())
-    try:
-
-        cur = conn.cursor()
-        query_pg = query.replace("?", "%s")
-        if params is not None:
-            cur.execute(query_pg, tuple(params))
-        else:
-            cur.execute(query_pg)
-        cols = [desc[0] for desc in cur.description] if cur.description else []
-        rows = cur.fetchall()
-        return pd.DataFrame(rows, columns=cols)
-    finally:
-        conn.close()
-
-def init_db():
-    conn = get_conn()
-    c = conn.cursor()
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            student_id SERIAL PRIMARY KEY,
-            student_name TEXT NOT NULL,
-            grade TEXT NOT NULL,
-            gender TEXT DEFAULT 'Male',
-            parent_name TEXT,
-            parent_phone TEXT,
-            parent_email TEXT,
-            status TEXT DEFAULT 'Active',
-            created_at TEXT
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS grades (
-            grade_id SERIAL PRIMARY KEY,
-            student_id INTEGER,
-            subject TEXT,
-            assessment_type TEXT,
-            score REAL,
-            max_score REAL DEFAULT 100,
-            term TEXT,
-            date TEXT,
-            teacher TEXT
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS language_skills (
-            skill_id SERIAL PRIMARY KEY,
-            student_id INTEGER,
-            term TEXT,
-            language TEXT,
-            speaking TEXT,
-            reading TEXT,
-            writing TEXT,
-            teacher TEXT,
-            UNIQUE(student_id, term, language)
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS attendance (
-            attendance_id SERIAL PRIMARY KEY,
-            student_id INTEGER,
-            date TEXT,
-            status TEXT,
-            teacher TEXT,
-            notes TEXT
         )
     """)
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS payments (
             payment_id SERIAL PRIMARY KEY,
-            student_id INTEGER,
-            month_year TEXT,
-            amount REAL DEFAULT 5000,
-            status TEXT DEFAULT 'Not paid',
-            paid_date TEXT,
-            recorded_by TEXT,
-            UNIQUE(student_id, month_year)
+            student_id INTEGER REFERENCES students(student_id),
+            amount REAL,
+            payment_type TEXT,
+            term TEXT,
+            payment_date TEXT,
+            receipt_no TEXT,
+            recorded_by TEXT
         )
     """)
 
     c.execute("""
-        CREATE TABLE IF NOT EXISTS staff (
-            staff_id SERIAL PRIMARY KEY,
-            full_name TEXT,
-            role TEXT,
-            username TEXT UNIQUE,
-            password TEXT,
-            phone TEXT,
-            assigned_classes TEXT DEFAULT 'ALL',
-            assigned_subjects TEXT DEFAULT 'ALL',
-            status TEXT DEFAULT 'Active'
+        CREATE TABLE IF NOT EXISTS conduct (
+            conduct_id SERIAL PRIMARY KEY,
+            student_id INTEGER REFERENCES students(student_id),
+            date TEXT,
+            incident_type TEXT,
+            description TEXT,
+            action_taken TEXT,
+            reported_by TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS permissions (
+            perm_id SERIAL PRIMARY KEY,
+            student_id INTEGER REFERENCES students(student_id),
+            date TEXT,
+            type TEXT,
+            reason TEXT,
+            status TEXT,
+            approved_by TEXT
         )
     """)
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS messages (
             msg_id SERIAL PRIMARY KEY,
-            sender_name TEXT,
-            sender_role TEXT,
+            sender TEXT,
             recipient TEXT,
             subject TEXT,
-            message TEXT,
-            created_at TEXT
+            body TEXT,
+            sent_at TEXT
         )
     """)
 
@@ -244,99 +244,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ====================== PAGE SETUP ======================
-st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
-
-init_db()
-
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #0B6E4F 0%, #0A3D62 100%);
-        padding: 1.2rem;
-        border-radius: 12px;
-        color: white;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# ====================== SESSION ======================
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user_name = ""
-    st.session_state.user_role = ""
-    st.session_state.username = ""
-    st.session_state.assigned_classes = "ALL"
-    st.session_state.assigned_subjects = "ALL"
-
-# ====================== LOGIN ======================
-if not st.session_state.logged_in:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=180)
-        st.markdown("<h2 style='text-align:center;'>IGISUBIZO ACADEMY</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;'>School Management System</p>", unsafe_allow_html=True)
-
-        st.info("Default Admin: username `admin` / password `admin123`")
-
-        with st.form("login_form"):
-            role = st.selectbox("Select Role", ["Administration", "Teacher", "Register Officer"])
-            uname = st.text_input("Username").strip()
-            pwd = st.text_input("Password", type="password").strip()
-            if st.form_submit_button("Login", use_container_width=True):
-                df = read_sql(
-                    "SELECT * FROM staff WHERE LOWER(username)=%s AND password=%s AND role=%s AND status='Active'",
-                    params=(uname.lower(), pwd, role)
-                )
-                if not df.empty:
-                    rec = df.iloc[0]
-                    st.session_state.logged_in = True
-                    st.session_state.user_name = rec["full_name"]
-                    st.session_state.user_role = rec["role"]
-                    st.session_state.username = rec["username"]
-                    st.session_state.assigned_classes = rec["assigned_classes"] or "ALL"
-                    st.session_state.assigned_subjects = rec["assigned_subjects"] or "ALL"
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials or role")
-    st.stop()
-
-# ====================== SIDEBAR ======================
-with st.sidebar:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", width=120)
-    st.success(f"👤 **{st.session_state.user_name}**\n\n{st.session_state.user_role}")
-    if st.session_state.user_role == "Teacher":
-        st.caption(f"Classes: {st.session_state.assigned_classes}")
-        st.caption(f"Subjects: {st.session_state.assigned_subjects}")
-
-    if st.button("Logout", use_container_width=True):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
-
-    st.divider()
-
-    if st.session_state.user_role == "Administration":
-        menu = st.radio("Navigation", [
-            "Dashboard", "Students", "Staff & Teachers", "Grades",
-            "Attendance", "Payments", "Report Cards", "Code of Conduct",
-            "Permission & Emergency", "Notifications", "Messages", "Removed Records"
-        ])
-    elif st.session_state.user_role == "Teacher":
-        menu = st.radio("Navigation", [
-            "Grades", "Attendance", "Report Cards", "Code of Conduct",
-            "Permission & Emergency", "Notifications", "Messages"
-        ])
-    else:
-        menu = st.radio("Navigation", [
-            "Students", "Payments", "Report Cards", "Code of Conduct",
-            "Permission & Emergency", "Messages"
-        ])
 
 # ====================== HELPERS ======================
 def allowed_classes():
