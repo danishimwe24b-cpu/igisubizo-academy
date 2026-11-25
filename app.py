@@ -253,6 +253,10 @@ def allowed_subjects():
     if st.session_state.assigned_subjects == "ALL":
         return SUBJECT_LIST
     return [x.strip() for x in st.session_state.assigned_subjects.split(",") if x.strip()]
+if "menu" not in locals():
+    menu = "Dashboard"
+
+if menu == "Dashboard":
 
 # ====================== DASHBOARD ======================
 if menu == "Dashboard":
