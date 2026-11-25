@@ -67,8 +67,7 @@ class NeonConnWrapper:
             self.raw.close()
 
 def get_conn():
-    def get_conn():
-    # ... your existing connection code stays here ...
+
     return conn
 
 # --- PASTE THIS RIGHT BELOW get_conn() ---
