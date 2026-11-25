@@ -1192,21 +1192,13 @@ elif menu == "Payments":
             st.markdown(f"### ✅ Paid Students — {view_class} ({view_month})")
             if paid_list_df.empty:
                 st.info(f"No students have paid yet in {view_class} for {view_month}.")
-            else:
-                st.dataframe(paid_list_df, use_container_width=True)
+                   query += " ORDER BY p.month_year DESC, s.grade, s.student_name"
+        pay_df = read_sql(query, params=params if params else None)
+        st.dataframe(pay_df, use_container_width=True)
 
-            st.markdown(f"### ⏳ Pending / Remained Not Paid — {view_class} ({view_month})")
-            if pending_display_df.empty:
-                st.success(f"All students in {view_class} have paid for {view_month}!")
-            else:
-                st.dataframe(pending_display_df, use_container_width=True)
-
-            st.markdown(f"### 🎁 Bonus / Extra Days Requested — {view_class} ({view_month})")
-            if class_bonus_df.empty:
     # -------------------- ROOM 4: PETTY CASH & MONTHLY EXPENSES --------------------
     with tab4:
         st.subheader("💸 Petty Cash & Monthly Expenses Room")
-        exp_month = st.selectbox("Select Month", PAYMENT_MONTHS, key="petty_cash_month")
 
         collected_df = read_sql(
             "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
