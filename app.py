@@ -1054,7 +1054,7 @@ elif menu == "Payments":
         "6. Update Payment Status"
     ])
 
-    # -------------------- TAB 1: RECORD STUDENT PAYMENT --------------------
+    # -------------------- ROOM 1: RECORD PAYMENT --------------------
     with tab1:
         sel_class = st.selectbox("Select Class", CLASS_LEVELS, key="pay_class")
         students = read_sql(
@@ -1117,7 +1117,7 @@ elif menu == "Payments":
                             conn.raw.rollback()
                             st.error(f"⚠️ Duplicate blocked: **{sel_student_label}** already has a payment for **{month_year}**.")
 
-    # -------------------- TAB 2: CLASS MONTHLY LISTS (PAID / PENDING / BONUS) --------------------
+    # -------------------- ROOM 2: CLASS MONTHLY LISTS (PAID / PENDING / BONUS) --------------------
     with tab2:
         st.subheader("📋 Class Monthly Payment Status & Bonus / Extra Days")
 
@@ -1203,6 +1203,215 @@ elif menu == "Payments":
 
             st.markdown(f"### 🎁 Bonus / Extra Days Requested — {view_class} ({view_month})")
             if class_bonus_df.empty:
+    # -------------------- ROOM 4: PETTY CASH & MONTHLY EXPENSES --------------------
+    with tab4:
+        st.subheader("💸 Petty Cash & Monthly Expenses Room")
+        exp_month = st.selectbox("Select Month", PAYMENT_MONTHS, key="petty_cash_month")
+
+        collected_df = read_sql(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
+            params=(exp_month,)
+        )
+        month_collected = float(collected_df["total"].sum())
+
+        expenses_sum_df = read_sql(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE month_year=%s",
+            params=(exp_month,)
+        )
+        month_expenses = float(expenses_sum_df["total"].sum())
+        net_remaining = month_collected - month_expenses
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric(f"Total Collected ({exp_month})", f"{month_collected:,.0f} RWF")
+        m2.metric(f"Total Expenses Deducted ({exp_month})", f"- {month_expenses:,.0f} RWF")
+        m3.metric(
+            f"Net Balance After Expenses ({exp_month})",
+            f"{net_remaining:,.0f} RWF",
+            delta=f"{net_remaining:,.0f} RWF"
+        )
+
+        if net_remaining < 0:
+            st.warning(f"⚠️ Expenses for **{exp_month}** exceed collected fees by **{abs(net_remaining):,.0f} RWF**.")
+
+        st.divider()
+        st.write(f"### Record Petty Cash Expense for **{exp_month}**")
+        with st.form("record_expense_form", clear_on_submit=True):
+            ec1, ec2 = st.columns(2)
+            sel_budget_line = ec1.selectbox("Select Budget Line *", BUDGET_LINES)
+            exp_amount = ec2.number_input("Expense Amount (RWF) *", min_value=0.0, value=0.0, step=500.0)
+
+            ec3, ec4 = st.columns(2)
+            exp_date = ec3.date_input("Expense Date", value=datetime.date.today())
+            exp_desc = ec4.text_input("Details / Receipt Note", placeholder="e.g., Bought 5 boxes of white chalk...")
+
+            if st.form_submit_button("💾 Deduct & Save Expense", use_container_width=True):
+                if exp_amount > 0:
+                    conn.execute("""
+                        INSERT INTO expenses (month_year, budget_line, amount, description, expense_date, recorded_by)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (
+                        exp_month,
+                        sel_budget_line,
+                        float(exp_amount),
+                        exp_desc.strip(),
+                        str(exp_date),
+                        st.session_state.user_name
+                    ))
+                    conn.commit()
+                    st.success(
+                        f"Deducted **{exp_amount:,.0f} RWF** under **{sel_budget_line}** "
+                        f"from **{exp_month}** collected funds!"
+                    )
+                    st.rerun()
+                else:
+                    st.error("Please enter an expense amount greater than 0 RWF.")
+
+        st.subheader(f"Recorded Petty Cash Expenses — {exp_month}")
+        month_exp_df = read_sql("""
+            SELECT expense_id, budget_line, amount, description, expense_date, recorded_by
+            FROM expenses
+            WHERE month_year=%s
+            ORDER BY expense_id DESC
+        """, params=(exp_month,))
+
+        if month_exp_df.empty:
+            st.info(f"No petty cash expenses recorded for {exp_month} yet.")
+        else:
+            st.dataframe(month_exp_df, use_container_width=True)
+
+            if st.session_state.user_role == "Administration":
+                with st.expander("🗑️ Delete an Expense Entry"):
+                    del_exp_id = st.number_input("Enter Expense ID to Delete", min_value=1, step=1, key="del_exp_id")
+                    if st.button("Delete Expense", key="btn_del_exp"):
+                        conn.execute("DELETE FROM expenses WHERE expense_id=%s AND month_year=%s", (int(del_exp_id), exp_month))
+                        conn.commit()
+                        st.success(f"Expense #{int(del_exp_id)} deleted and balance restored.")
+                        st.rerun()
+
+    # -------------------- ROOM 5: MONTHLY BUDGET & FINANCIAL SUMMARY --------------------
+    with tab5:
+        st.subheader("📊 Monthly Budget Planning & Financial Summary")
+        bud_month = st.selectbox("Select Month to Plan / Review", PAYMENT_MONTHS, key="budget_plan_month")
+
+        b_coll_df = read_sql(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
+            params=(bud_month,)
+        )
+        b_collected = float(b_coll_df["total"].sum())
+
+        b_exp_df = read_sql(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE month_year=%s",
+            params=(bud_month,)
+        )
+        b_spent = float(b_exp_df["total"].sum())
+
+        b_plan_df = read_sql(
+            "SELECT COALESCE(SUM(planned_amount), 0) AS total FROM monthly_budgets WHERE month_year=%s",
+            params=(bud_month,)
+        )
+        b_planned_total = float(b_plan_df["total"].sum())
+        b_net_cash = b_collected - b_spent
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Fees Collected", f"{b_collected:,.0f} RWF")
+        k2.metric("Planned Budget", f"{b_planned_total:,.0f} RWF")
+        k3.metric("Actual Expenses", f"{b_spent:,.0f} RWF")
+        k4.metric("Net Balance", f"{b_net_cash:,.0f} RWF")
+
+        st.divider()
+        st.write(f"### Set / Update Planned Budget Line for **{bud_month}**")
+        with st.form("monthly_budget_form", clear_on_submit=True):
+            bc1, bc2 = st.columns(2)
+            plan_line = bc1.selectbox("Budget Line *", BUDGET_LINES, key="plan_budget_line")
+            plan_amt = bc2.number_input("Planned Budget Amount (RWF) *", min_value=0.0, value=0.0, step=1000.0)
+            plan_note = st.text_input("Budget Planning Note (Optional)", placeholder="e.g., Monthly allocation based on expected expenses...")
+
+            if st.form_submit_button("💾 Save Monthly Budget Allocation", use_container_width=True):
+                conn.execute("""
+                    INSERT INTO monthly_budgets (month_year, budget_line, planned_amount, notes, updated_by)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (month_year, budget_line)
+                    DO UPDATE SET
+                        planned_amount = EXCLUDED.planned_amount,
+                        notes = EXCLUDED.notes,
+                        updated_by = EXCLUDED.updated_by
+                """, (bud_month, plan_line, float(plan_amt), plan_note.strip(), st.session_state.user_name))
+                conn.commit()
+                st.success(f"Saved budget plan of **{plan_amt:,.0f} RWF** for **{plan_line}** ({bud_month})!")
+                st.rerun()
+
+        st.subheader(f"Budget vs. Actual Expenses Breakdown — {bud_month}")
+        planned_rows = read_sql(
+            "SELECT budget_line, planned_amount, notes FROM monthly_budgets WHERE month_year=%s",
+            params=(bud_month,)
+        )
+        actual_rows = read_sql(
+            "SELECT budget_line, COALESCE(SUM(amount), 0) AS actual_spent FROM expenses WHERE month_year=%s GROUP BY budget_line",
+            params=(bud_month,)
+        )
+
+        planned_map = dict(zip(planned_rows["budget_line"], planned_rows["planned_amount"])) if not planned_rows.empty else {}
+        notes_map = dict(zip(planned_rows["budget_line"], planned_rows["notes"])) if not planned_rows.empty else {}
+        actual_map = dict(zip(actual_rows["budget_line"], actual_rows["actual_spent"])) if not actual_rows.empty else {}
+
+        summary_data = []
+        for line in BUDGET_LINES:
+            p_val = float(planned_map.get(line, 0.0))
+            a_val = float(actual_map.get(line, 0.0))
+            rem_val = p_val - a_val
+            summary_data.append({
+                "Budget Line": line,
+                "Planned Budget (RWF)": p_val,
+                "Actual Expenses (RWF)": a_val,
+                "Remaining Budget (RWF)": rem_val,
+                "Notes": notes_map.get(line, "")
+            })
+
+        summary_df = pd.DataFrame(summary_data)
+        st.dataframe(summary_df, use_container_width=True)
+
+        st.subheader("All-Months Financial Overview (Collected vs. Expenses)")
+        all_months_overview = read_sql("""
+            WITH months AS (
+                SELECT DISTINCT month_year FROM payments
+                UNION
+                SELECT DISTINCT month_year FROM expenses
+                UNION
+                SELECT DISTINCT month_year FROM monthly_budgets
+            ),
+            p_tot AS (
+                SELECT month_year, COALESCE(SUM(amount), 0) AS collected
+                FROM payments
+                WHERE status = 'Paid'
+                GROUP BY month_year
+            ),
+            e_tot AS (
+                SELECT month_year, COALESCE(SUM(amount), 0) AS expenses
+                FROM expenses
+                GROUP BY month_year
+            ),
+            b_tot AS (
+                SELECT month_year, COALESCE(SUM(planned_amount), 0) AS budgeted
+                FROM monthly_budgets
+                GROUP BY month_year
+            )
+            SELECT
+                m.month_year AS "Month",
+                COALESCE(p.collected, 0) AS "Collected (RWF)",
+                COALESCE(b.budgeted, 0) AS "Planned Budget (RWF)",
+                COALESCE(e.expenses, 0) AS "Total Expenses (RWF)",
+                (COALESCE(p.collected, 0) - COALESCE(e.expenses, 0)) AS "Net Balance (RWF)"
+            FROM months m
+            LEFT JOIN p_tot p ON m.month_year = p.month_year
+            LEFT JOIN e_tot e ON m.month_year = e.month_year
+            LEFT JOIN b_tot b ON m.month_year = b.month_year
+            ORDER BY m.month_year DESC
+        """)
+        if not all_months_overview.empty:
+            st.dataframe(all_months_overview, use_container_width=True)
+
+    # -------------------- ROOM 6: UPDATE PAYMENT STATUS --------------------
+    with tab6:
 # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
     st.header("📄 Report Cards")
