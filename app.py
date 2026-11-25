@@ -1201,10 +1201,14 @@ elif menu == "Payments":
             else:
                 st.dataframe(pending_display_df, use_container_width=True)
 
-            st.markdown(f"### 🎁 Bonus / Extra Days Requested — {view_class} ({view_month})")
-            if class_bonus_df.empty:
+                  if not all_months_overview.empty:
+            st.dataframe(all_months_overview, use_container_width=True)
+
+    conn.close()
    # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
+
+ 
     st.header("📄 Report Cards")
     classes = allowed_classes() if st.session_state.user_role == "Teacher" else CLASS_LEVELS
 
