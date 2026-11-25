@@ -975,6 +975,7 @@ elif menu == "Attendance":
             )
 
 # ====================== PAYMENTS ======================
+# ====================== PAYMENTS ======================
 elif menu == "Payments":
     st.header("💳 School Fees, Petty Cash Expenses & Monthly Budget")
     conn = get_conn()
@@ -1126,13 +1127,11 @@ elif menu == "Payments":
         view_class = f1.selectbox("Select Class", CLASS_LEVELS, key="status_view_class")
         view_month = f2.selectbox("Select Month", PAYMENT_MONTHS, key="status_view_month")
 
-        # 1. All active students in this class
         class_students_df = read_sql(
             "SELECT student_id, student_name, parent_name, parent_phone FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
             params=(view_class,)
         )
 
-        # 2. Payments recorded for this class & month
         class_pays_df = read_sql("""
             SELECT p.student_id, p.amount, p.status, p.paid_date, p.recorded_by
             FROM payments p
@@ -1140,7 +1139,6 @@ elif menu == "Payments":
             WHERE s.grade=%s AND p.month_year=%s
         """, params=(view_class, view_month))
 
-        # 3. Bonus / Extra days requests for this class & month
         class_bonus_df = read_sql("""
             SELECT b.bonus_id, b.student_id, s.student_name, b.extra_days, b.promised_pay_date,
                    b.reason, b.status AS bonus_status, b.recorded_by
@@ -1161,14 +1159,12 @@ elif menu == "Payments":
                 class_bonus_df["student_id"].tolist()
             ) if not class_bonus_df.empty else set()
 
-            # List 1: Paid students
             paid_list_df = class_students_df[class_students_df["student_id"].isin(paid_ids)].merge(
                 class_pays_df[class_pays_df["status"] == "Paid"],
                 on="student_id",
                 how="left"
             )[["student_id", "student_name", "amount", "paid_date", "recorded_by"]]
 
-            # List 2: Pending / Not Paid students (not marked Paid yet)
             pending_students_df = class_students_df[~class_students_df["student_id"].isin(paid_ids)].copy()
             if not class_pays_df.empty:
                 pending_students_df = pending_students_df.merge(
@@ -1187,7 +1183,6 @@ elif menu == "Payments":
                 ["student_id", "student_name", "parent_name", "parent_phone", "Payment Status", "Bonus Requested?"]
             ]
 
-            # Summary metrics at top
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Total Students", len(class_students_df))
             m2.metric("✅ Paid", len(paid_list_df))
@@ -1196,15 +1191,21 @@ elif menu == "Payments":
 
             st.divider()
 
-            # Section A: Paid List
             st.markdown(f"### ✅ Paid Students — {view_class} ({view_month})")
             if paid_list_df.empty:
                 st.info(f"No students have paid yet in {view_class} for {view_month}.")
             else:
                 st.dataframe(paid_list_df, use_container_width=True)
 
-            # Section B: Pending / Not Paid List
-# ====================== REPORT CARDS ======================
+            st.markdown(f"### ⏳ Pending / Remained Not Paid — {view_class} ({view_month})")
+            if pending_display_df.empty:
+                st.success(f"All students in {view_class} have paid for {view_month}!")
+            else:
+                st.dataframe(pending_display_df, use_container_width=True)
+
+
+
+   # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
     st.header("📄 Report Cards")
     classes = allowed_classes() if st.session_state.user_role == "Teacher" else CLASS_LEVELS
