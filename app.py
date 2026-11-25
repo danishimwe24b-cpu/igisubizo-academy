@@ -975,12 +975,10 @@ elif menu == "Attendance":
             )
 
 # ====================== PAYMENTS ======================
-# ====================== PAYMENTS ======================
 elif menu == "Payments":
     st.header("💳 School Fees, Petty Cash Expenses & Monthly Budget")
     conn = get_conn()
 
-    # Ensure expenses, monthly_budgets, and bonus_requests tables exist in Neon PostgreSQL
     conn.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             expense_id SERIAL PRIMARY KEY,
@@ -1203,8 +1201,8 @@ elif menu == "Payments":
             else:
                 st.dataframe(pending_display_df, use_container_width=True)
 
-
-
+            st.markdown(f"### 🎁 Bonus / Extra Days Requested — {view_class} ({view_month})")
+            if class_bonus_df.empty:
    # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
     st.header("📄 Report Cards")
