@@ -256,10 +256,11 @@ def allowed_subjects():
 if "menu" not in locals():
     menu = "Dashboard"
 
+if "menu" not in locals():
+    menu = "Dashboard"
+
 if menu == "Dashboard":
 
-# ====================== DASHBOARD ======================
-if menu == "Dashboard":
     st.markdown("<div class='main-header'><h2>📊 Administration Dashboard</h2></div>", unsafe_allow_html=True)
 
     active_students = read_sql("SELECT COUNT(*) as c FROM students WHERE status='Active'").iloc[0]["c"]
