@@ -243,8 +243,6 @@ def init_db():
 
     conn.commit()
     conn.close()
-
-
 # ====================== HELPERS ======================
 def allowed_classes():
     if st.session_state.assigned_classes == "ALL":
