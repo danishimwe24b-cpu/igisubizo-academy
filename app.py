@@ -975,12 +975,10 @@ elif menu == "Attendance":
             )
 
 # ====================== PAYMENTS ======================
-# ====================== PAYMENTS ======================
 elif menu == "Payments":
     st.header("💳 School Fees, Petty Cash Expenses & Monthly Budget")
     conn = get_conn()
 
-    # Ensure expenses and monthly_budgets tables exist in Neon PostgreSQL
     conn.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             expense_id SERIAL PRIMARY KEY,
@@ -1001,6 +999,20 @@ elif menu == "Payments":
             notes TEXT,
             updated_by TEXT,
             UNIQUE(month_year, budget_line)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS payment_bonus_requests (
+            bonus_id SERIAL PRIMARY KEY,
+            student_id INTEGER REFERENCES students(student_id),
+            month_year TEXT NOT NULL,
+            extra_days INTEGER NOT NULL DEFAULT 1,
+            promised_pay_date TEXT,
+            reason TEXT,
+            status TEXT DEFAULT 'Active',
+            recorded_by TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(student_id, month_year)
         )
     """)
     conn.commit()
@@ -1033,14 +1045,16 @@ elif menu == "Payments":
         "025. Renovations"
     ]
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Record Payment",
-        "Payment Records",
-        "Update Payment Status",
-        "💸 Petty Cash & Monthly Expenses",
-        "📊 Monthly Budget & Summary"
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "1. Record Payment",
+        "2. Class Monthly Lists (Paid / Pending / Bonus)",
+        "3. Payment Records",
+        "4. Petty Cash",
+        "5. Monthly Budget",
+        "6. Update Payment Status"
     ])
-# -------------------- TAB 1: RECORD STUDENT PAYMENT --------------------
+
+    # -------------------- TAB 1: RECORD STUDENT PAYMENT --------------------
     with tab1:
         sel_class = st.selectbox("Select Class", CLASS_LEVELS, key="pay_class")
         students = read_sql(
@@ -1097,285 +1111,98 @@ elif menu == "Payments":
                                 VALUES (%s,%s,%s,%s,%s,%s)
                             """, (sid, month_year, amount, status, str(paid_date), st.session_state.user_name))
                             conn.commit()
-                            st.success(f"Payment recorded for **{sel_student_label}** for **{month_year}**!")
+                            st.success(f"Payment recorded for **{sel_student_label}** ({sel_class}) for **{month_year}**!")
                             st.rerun()
                         except psycopg2.IntegrityError:
                             conn.raw.rollback()
                             st.error(f"⚠️ Duplicate blocked: **{sel_student_label}** already has a payment for **{month_year}**.")
-# -------------------- TAB 2: PAYMENT RECORDS --------------------
-with tab2:
-        c1, c2 = st.columns(2)
-        filter_month = c1.selectbox("Filter by Month", ["All"] + PAYMENT_MONTHS, key="filter_pay_month")
-        filter_status = c2.selectbox("Filter by Status", ["All"] + PAYMENT_STATUS, key="filter_pay_status")
 
-        query = """
-            SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date, p.recorded_by
+    # -------------------- TAB 2: CLASS MONTHLY LISTS (PAID / PENDING / BONUS) --------------------
+    with tab2:
+        st.subheader("📋 Class Monthly Payment Status & Bonus / Extra Days")
+
+        f1, f2 = st.columns(2)
+        view_class = f1.selectbox("Select Class", CLASS_LEVELS, key="status_view_class")
+        view_month = f2.selectbox("Select Month", PAYMENT_MONTHS, key="status_view_month")
+
+        class_students_df = read_sql(
+            "SELECT student_id, student_name, parent_name, parent_phone FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+            params=(view_class,)
+        )
+
+        class_pays_df = read_sql("""
+            SELECT p.student_id, p.amount, p.status, p.paid_date, p.recorded_by
             FROM payments p
             JOIN students s ON p.student_id = s.student_id
-            WHERE 1=1
-        """
-        params = []
-        if filter_month != "All":
-            query += " AND p.month_year = %s"
-            params.append(filter_month)
-        if filter_status != "All":
-            query += " AND p.status = %s"
-            params.append(filter_status)
+            WHERE s.grade=%s AND p.month_year=%s
+        """, params=(view_class, view_month))
 
-        query += " ORDER BY p.month_year DESC, s.grade, s.student_name"
-        pay_df = read_sql(query, params=params if params else None)
-        st.dataframe(pay_df, use_container_width=True)
+        class_bonus_df = read_sql("""
+            SELECT b.bonus_id, b.student_id, s.student_name, b.extra_days, b.promised_pay_date,
+                   b.reason, b.status AS bonus_status, b.recorded_by
+            FROM payment_bonus_requests b
+            JOIN students s ON b.student_id = s.student_id
+            WHERE s.grade=%s AND b.month_year=%s
+            ORDER BY b.bonus_id DESC
+        """, params=(view_class, view_month))
 
-    # -------------------- TAB 3: UPDATE PAYMENT STATUS --------------------
-    with tab3:
-        st.subheader("✏️ Update Existing Payment Record")
-        all_pays = read_sql("""
-            SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date
-            FROM payments p
-            JOIN students s ON p.student_id = s.student_id
-            ORDER BY p.payment_id DESC
-        """)
-
-        if all_pays.empty:
-            st.info("No payment records available to update.")
+        if class_students_df.empty:
+            st.warning(f"No active students found in {view_class}.")
         else:
-            pay_options = {
-                f"#{r['payment_id']} | {r['student_name']} ({r['grade']}) - {r['month_year']} [{r['status']}]": r
-                for _, r in all_pays.iterrows()
-            }
-            sel_pay_label = st.selectbox("Select Payment Record", list(pay_options.keys()))
-            rec = pay_options[sel_pay_label]
+            paid_ids = set(
+                class_pays_df[class_pays_df["status"] == "Paid"]["student_id"].tolist()
+            ) if not class_pays_df.empty else set()
 
-            with st.form("edit_payment_form"):
-                c1, c2 = st.columns(2)
-                upd_amount = c1.number_input("Amount (RWF)", min_value=0, value=int(rec["amount"]), step=500)
-                upd_status = c2.selectbox(
-                    "New Status",
-                    PAYMENT_STATUS,
-                    index=PAYMENT_STATUS.index(rec["status"]) if rec["status"] in PAYMENT_STATUS else 0
+            bonus_ids = set(
+                class_bonus_df["student_id"].tolist()
+            ) if not class_bonus_df.empty else set()
+
+            paid_list_df = class_students_df[class_students_df["student_id"].isin(paid_ids)].merge(
+                class_pays_df[class_pays_df["status"] == "Paid"],
+                on="student_id",
+                how="left"
+            )[["student_id", "student_name", "amount", "paid_date", "recorded_by"]]
+
+            pending_students_df = class_students_df[~class_students_df["student_id"].isin(paid_ids)].copy()
+            if not class_pays_df.empty:
+                pending_students_df = pending_students_df.merge(
+                    class_pays_df[["student_id", "status", "amount"]],
+                    on="student_id",
+                    how="left"
                 )
-                upd_date = st.date_input("Payment Date", value=datetime.date.today())
+                pending_students_df["Payment Status"] = pending_students_df["status"].fillna("Not Recorded (Pending)")
+            else:
+                pending_students_df["Payment Status"] = "Not Recorded (Pending)"
 
-                if st.form_submit_button("Update Payment"):
-                    conn.execute(
-                        "UPDATE payments SET amount=%s, status=%s, paid_date=%s, recorded_by=%s WHERE payment_id=%s",
-                        (upd_amount, upd_status, str(upd_date), st.session_state.user_name, int(rec["payment_id"]))
-                    )
-                    conn.commit()
-                    st.success("Payment record updated!")
-                    st.rerun()
-# -------------------- TAB 4: PETTY CASH & MONTHLY EXPENSES --------------------
-    with tab4:
-        st.subheader("💸 Petty Cash & Monthly Expenses Room")
-        exp_month = st.selectbox("Select Month", PAYMENT_MONTHS, key="petty_cash_month")
-
-        # Automatic monthly calculation: Total Collected vs Total Expenses Deducted
-        collected_df = read_sql(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
-            params=(exp_month,)
-        )
-        month_collected = float(collected_df["total"].iat[0])
-
-        expenses_sum_df = read_sql(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE month_year=%s",
-            params=(exp_month,)
-        )
-        month_expenses = float(expenses_sum_df["total"].iat[0])
-        net_remaining = month_collected - month_expenses
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric(f"Total Collected ({exp_month})", f"{month_collected:,.0f} RWF")
-        m2.metric(f"Total Expenses Deducted ({exp_month})", f"- {month_expenses:,.0f} RWF")
-        m3.metric(
-            f"Net Balance After Expenses ({exp_month})",
-            f"{net_remaining:,.0f} RWF",
-            delta=f"{net_remaining:,.0f} RWF"
-        )
-
-        if net_remaining < 0:
-            st.warning(f"⚠️ Expenses for **{exp_month}** exceed collected fees by **{abs(net_remaining):,.0f} RWF**.")
-
-        st.divider()
-        st.write(f"### Record Petty Cash Expense for **{exp_month}**")
-        with st.form("record_expense_form", clear_on_submit=True):
-            ec1, ec2 = st.columns(2)
-            sel_budget_line = ec1.selectbox("Select Budget Line *", BUDGET_LINES)
-            exp_amount = ec2.number_input("Expense Amount (RWF) *", min_value=0.0, value=0.0, step=500.0)
-
-            ec3, ec4 = st.columns(2)
-            exp_date = ec3.date_input("Expense Date", value=datetime.date.today())
-            exp_desc = ec4.text_input("Details / Receipt Note", placeholder="e.g., Bought 5 boxes of white chalk...")
-
-            if st.form_submit_button("💾 Deduct & Save Expense", use_container_width=True):
-                if exp_amount > 0:
-                    conn.execute("""
-                        INSERT INTO expenses (month_year, budget_line, amount, description, expense_date, recorded_by)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (
-                        exp_month,
-                        sel_budget_line,
-                        float(exp_amount),
-                        exp_desc.strip(),
-                        str(exp_date),
-                        st.session_state.user_name
-                    ))
-                    conn.commit()
-                    st.success(
-                        f"Deducted **{exp_amount:,.0f} RWF** under **{sel_budget_line}** "
-                        f"from **{exp_month}** collected funds!"
-                    )
-                    st.rerun()
-                else:
-                    st.error("Please enter an expense amount greater than 0 RWF.")
-
-        st.subheader(f"Recorded Petty Cash Expenses — {exp_month}")
-        month_exp_df = read_sql("""
-            SELECT expense_id, budget_line, amount, description, expense_date, recorded_by
-            FROM expenses
-            WHERE month_year=%s
-            ORDER BY expense_id DESC
-        """, params=(exp_month,))
-
-        if month_exp_df.empty:
-            st.info(f"No petty cash expenses recorded for {exp_month} yet.")
-        else:
-            st.dataframe(month_exp_df, use_container_width=True)
-
-            # Option for Administration to remove an erroneous expense entry
-            if st.session_state.user_role == "Administration":
-                with st.expander("🗑️ Delete an Expense Entry"):
-                    del_exp_id = st.number_input("Enter Expense ID to Delete", min_value=1, step=1, key="del_exp_id")
-                    if st.button("Delete Expense", key="btn_del_exp"):
-                        conn.execute("DELETE FROM expenses WHERE expense_id=%s AND month_year=%s", (int(del_exp_id), exp_month))
-                        conn.commit()
-                        st.success(f"Expense #{int(del_exp_id)} deleted and balance restored.")
-                        st.rerun()
- # -------------------- TAB 5: MONTHLY BUDGET & FINANCIAL SUMMARY --------------------
-with tab5:
-        st.subheader("📊 Monthly Budget Planning & Financial Summary")
-        bud_month = st.selectbox("Select Month to Plan / Review", PAYMENT_MONTHS, key="budget_plan_month")
-
-        # Fetch monthly totals
-        b_coll_df = read_sql(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
-            params=(bud_month,)
-        )
-        b_collected = float(b_coll_df["total"].iat[0])
-
-        b_exp_df = read_sql(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE month_year=%s",
-            params=(bud_month,)
-        )
-        b_spent = float(b_exp_df["total"].iat[0])
-
-        b_plan_df = read_sql(
-            "SELECT COALESCE(SUM(planned_amount), 0) AS total FROM monthly_budgets WHERE month_year=%s",
-            params=(bud_month,)
-        )
-        b_planned_total = float(b_plan_df["total"].iat[0])
-        b_net_cash = b_collected - b_spent
-
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Fees Collected", f"{b_collected:,.0f} RWF")
-        k2.metric("Planned Budget", f"{b_planned_total:,.0f} RWF")
-        k3.metric("Actual Expenses", f"{b_spent:,.0f} RWF")
-        k4.metric("Net Balance", f"{b_net_cash:,.0f} RWF")
-
-        st.divider()
-        st.write(f"### Set / Update Planned Budget Line for **{bud_month}**")
-        with st.form("monthly_budget_form", clear_on_submit=True):
-            bc1, bc2 = st.columns(2)
-            plan_line = bc1.selectbox("Budget Line *", BUDGET_LINES, key="plan_budget_line")
-            plan_amt = bc2.number_input("Planned Budget Amount (RWF) *", min_value=0.0, value=0.0, step=1000.0)
-            plan_note = st.text_input("Budget Planning Note (Optional)", placeholder="e.g., Monthly allocation based on expected expenses...")
-
-            if st.form_submit_button("💾 Save Monthly Budget Allocation", use_container_width=True):
-                conn.execute("""
-                    INSERT INTO monthly_budgets (month_year, budget_line, planned_amount, notes, updated_by)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (month_year, budget_line)
-                    DO UPDATE SET
-                        planned_amount = EXCLUDED.planned_amount,
-                        notes = EXCLUDED.notes,
-                        updated_by = EXCLUDED.updated_by
-                """, (bud_month, plan_line, float(plan_amt), plan_note.strip(), st.session_state.user_name))
-                conn.commit()
-                st.success(f"Saved budget plan of **{plan_amt:,.0f} RWF** for **{plan_line}** ({bud_month})!")
-                st.rerun()
-
-        st.subheader(f"Budget vs. Actual Expenses Breakdown — {bud_month}")
-        planned_rows = read_sql(
-            "SELECT budget_line, planned_amount, notes FROM monthly_budgets WHERE month_year=%s",
-            params=(bud_month,)
-        )
-        actual_rows = read_sql(
-            "SELECT budget_line, COALESCE(SUM(amount), 0) AS actual_spent FROM expenses WHERE month_year=%s GROUP BY budget_line",
-            params=(bud_month,)
-        )
-
-        planned_map = dict(zip(planned_rows["budget_line"], planned_rows["planned_amount"])) if not planned_rows.empty else {}
-        notes_map = dict(zip(planned_rows["budget_line"], planned_rows["notes"])) if not planned_rows.empty else {}
-        actual_map = dict(zip(actual_rows["budget_line"], actual_rows["actual_spent"])) if not actual_rows.empty else {}
-
-        summary_data = []
-        for line in BUDGET_LINES:
-            p_val = float(planned_map.get(line, 0.0))
-            a_val = float(actual_map.get(line, 0.0))
-            rem_val = p_val - a_val
-            summary_data.append({
-                "Budget Line": line,
-                "Planned Budget (RWF)": p_val,
-                "Actual Expenses (RWF)": a_val,
-                "Remaining Budget (RWF)": rem_val,
-                "Notes": notes_map.get(line, "")
-            })
-
-        summary_df = pd.DataFrame(summary_data)
-        st.dataframe(summary_df, use_container_width=True)
-
-        st.subheader("All-Months Financial Overview (Collected vs. Expenses)")
-        all_months_overview = read_sql("""
-            WITH months AS (
-                SELECT DISTINCT month_year FROM payments
-                UNION
-                SELECT DISTINCT month_year FROM expenses
-                UNION
-                SELECT DISTINCT month_year FROM monthly_budgets
-            ),
-            p_tot AS (
-                SELECT month_year, COALESCE(SUM(amount), 0) AS collected
-                FROM payments
-                WHERE status = 'Paid'
-                GROUP BY month_year
-            ),
-            e_tot AS (
-                SELECT month_year, COALESCE(SUM(amount), 0) AS expenses
-                FROM expenses
-                GROUP BY month_year
-            ),
-            b_tot AS (
-                SELECT month_year, COALESCE(SUM(planned_amount), 0) AS budgeted
-                FROM monthly_budgets
-                GROUP BY month_year
+            pending_students_df["Bonus Requested?"] = pending_students_df["student_id"].apply(
+                lambda x: "Yes (Bonus / Extra Days)" if x in bonus_ids else "No"
             )
-            SELECT
-                m.month_year AS "Month",
-                COALESCE(p.collected, 0) AS "Collected (RWF)",
-                COALESCE(b.budgeted, 0) AS "Planned Budget (RWF)",
-                COALESCE(e.expenses, 0) AS "Total Expenses (RWF)",
-                (COALESCE(p.collected, 0) - COALESCE(e.expenses, 0)) AS "Net Balance (RWF)"
-            FROM months m
-            LEFT JOIN p_tot p ON m.month_year = p.month_year
-            LEFT JOIN e_tot e ON m.month_year = e.month_year
-            LEFT JOIN b_tot b ON m.month_year = b.month_year
-            ORDER BY m.month_year DESC
-        """)
-        if not all_months_overview.empty:
-            st.dataframe(all_months_overview, use_container_width=True)
+            pending_display_df = pending_students_df[
+                ["student_id", "student_name", "parent_name", "parent_phone", "Payment Status", "Bonus Requested?"]
+            ]
 
-    conn.close()
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Total Students", len(class_students_df))
+            m2.metric("✅ Paid", len(paid_list_df))
+            m3.metric("⏳ Pending / Not Paid", len(pending_display_df))
+            m4.metric("🎁 Bonus / Extra Days", len(class_bonus_df))
 
+            st.divider()
 
+            st.markdown(f"### ✅ Paid Students — {view_class} ({view_month})")
+            if paid_list_df.empty:
+                st.info(f"No students have paid yet in {view_class} for {view_month}.")
+            else:
+                st.dataframe(paid_list_df, use_container_width=True)
+
+            st.markdown(f"### ⏳ Pending / Remained Not Paid — {view_class} ({view_month})")
+            if pending_display_df.empty:
+                st.success(f"All students in {view_class} have paid for {view_month}!")
+            else:
+                st.dataframe(pending_display_df, use_container_width=True)
+
+            st.markdown(f"### 🎁 Bonus / Extra Days Requested — {view_class} ({view_month})")
+            if class_bonus_df.empty:
 # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
     st.header("📄 Report Cards")
