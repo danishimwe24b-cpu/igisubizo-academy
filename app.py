@@ -1189,16 +1189,89 @@ elif menu == "Payments":
 
             st.divider()
 
-            st.markdown(f"### ✅ Paid Students — {view_class} ({view_month})")
+                       st.markdown(f"### ✅ Paid Students — {view_class} ({view_month})")
             if paid_list_df.empty:
                 st.info(f"No students have paid yet in {view_class} for {view_month}.")
-                   query += " ORDER BY p.month_year DESC, s.grade, s.student_name"
+            else:
+                st.dataframe(paid_list_df, use_container_width=True)
+
+            st.markdown(f"### ⏳ Pending / Remained Not Paid — {view_class} ({view_month})")
+            if pending_display_df.empty:
+                st.success(f"All students in {view_class} have paid for {view_month}!")
+            else:
+                st.dataframe(pending_display_df, use_container_width=True)
+
+            st.markdown(f"### 🎁 Bonus / Extra Days Requested — {view_class} ({view_month})")
+            if class_bonus_df.empty:
+                st.info(f"No bonus or extra days requests recorded for {view_class} in {view_month}.")
+            else:
+                st.dataframe(
+                    class_bonus_df[["bonus_id", "student_name", "extra_days", "promised_pay_date", "reason", "bonus_status", "recorded_by"]],
+                    use_container_width=True
+                )
+
+            with st.expander(f"➕ Record Bonus / Extra Days Request for {view_class} ({view_month})"):
+                if pending_display_df.empty:
+                    st.info("All students in this class have already paid.")
+                else:
+                    bonus_student_map = {
+                        f"{r['student_name']} (ID #{r['student_id']})": int(r["student_id"])
+                        for _, r in pending_display_df.iterrows()
+                    }
+                    with st.form("bonus_request_form"):
+                        b_student_label = st.selectbox("Select Student (Pending Payment)", list(bonus_student_map.keys()))
+                        bc1, bc2 = st.columns(2)
+                        extra_days = bc1.number_input("Extra Days Requested", min_value=1, max_value=60, value=7, step=1)
+                        promised_date = bc2.date_input("Promised Payment Date", value=datetime.date.today() + datetime.timedelta(days=7))
+                        bonus_reason = st.text_input("Reason / Parent Request Note", placeholder="e.g., Parent requested 7 extra days until salary...")
+
+                        if st.form_submit_button("💾 Save Bonus / Extra Days Request", use_container_width=True):
+                            b_sid = bonus_student_map[b_student_label]
+                            cur = conn.cursor()
+                            cur.execute("""
+                                INSERT INTO payment_bonus_requests (student_id, month_year, extra_days, promised_pay_date, reason, status, recorded_by)
+                                VALUES (%s, %s, %s, %s, %s, 'Active', %s)
+                                ON CONFLICT (student_id, month_year)
+                                DO UPDATE SET
+                                    extra_days = EXCLUDED.extra_days,
+                                    promised_pay_date = EXCLUDED.promised_pay_date,
+                                    reason = EXCLUDED.reason,
+                                    status = 'Active',
+                                    recorded_by = EXCLUDED.recorded_by
+                            """, (b_sid, view_month, int(extra_days), str(promised_date), bonus_reason.strip(), st.session_state.user_name))
+                            conn.commit()
+                            st.success(f"Bonus / extra days recorded for **{b_student_label}** ({view_month})!")
+                            st.rerun()
+
+    # -------------------- ROOM 3: PAYMENT RECORDS --------------------
+    with tab3:
+        st.subheader("📑 All Payment Records")
+        c1, c2 = st.columns(2)
+        filter_month = c1.selectbox("Filter by Month", ["All"] + PAYMENT_MONTHS, key="filter_pay_month")
+        filter_status = c2.selectbox("Filter by Status", ["All"] + PAYMENT_STATUS, key="filter_pay_status")
+
+        query = """
+            SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date, p.recorded_by
+            FROM payments p
+            JOIN students s ON p.student_id = s.student_id
+            WHERE 1=1
+        """
+        params = []
+        if filter_month != "All":
+            query += " AND p.month_year = %s"
+            params.append(filter_month)
+        if filter_status != "All":
+            query += " AND p.status = %s"
+            params.append(filter_status)
+
+        query += " ORDER BY p.month_year DESC, s.grade, s.student_name"
         pay_df = read_sql(query, params=params if params else None)
         st.dataframe(pay_df, use_container_width=True)
 
     # -------------------- ROOM 4: PETTY CASH & MONTHLY EXPENSES --------------------
     with tab4:
         st.subheader("💸 Petty Cash & Monthly Expenses Room")
+        exp_month = st.selectbox("Select Month", PAYMENT_MONTHS, key="petty_cash_month")
 
         collected_df = read_sql(
             "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
