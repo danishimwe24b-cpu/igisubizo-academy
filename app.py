@@ -1201,12 +1201,15 @@ elif menu == "Payments":
             else:
                 st.dataframe(pending_display_df, use_container_width=True)
 
-                  if not all_months_overview.empty:
+               """)
+        if not all_months_overview.empty:
             st.dataframe(all_months_overview, use_container_width=True)
 
     conn.close()
-   # ====================== REPORT CARDS ======================
+
 elif menu == "Report Cards":
+   # ====================== REPORT CARDS ======================
+
 
  
     st.header("📄 Report Cards")
