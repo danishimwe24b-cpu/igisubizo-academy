@@ -713,96 +713,220 @@ elif menu == "Grades":
                 """, params=(psid, p_term))
                 st.line_chart(raw_prog.pivot_table(index="date", columns="subject", values="pct", aggfunc="mean"))
     conn.close()
-    # ====================== ATTENDANCE ======================
+    # ====================== ATTENDANCE & LESSON REPORT ======================
 elif menu == "Attendance":
-    st.header("📅 Daily Attendance")
+    st.header("📅 Daily Attendance & Lesson Preparation")
     conn = get_conn()
     classes = allowed_classes()
+    teacher_name = st.session_state.user_name
 
+    # Shared Class & Date selectors at the top
     col1, col2 = st.columns(2)
     sel_class = col1.selectbox("Select Class", classes, key="att_class")
     att_date = col2.date_input("Date", value=datetime.date.today(), key="att_date")
     date_str = str(att_date)
 
-    students = read_sql(
-        "SELECT student_id, student_name FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
-        params=(sel_class,)
-    )
+    # Organize into 3 clean tabs
+    tab_students, tab_teacher, tab_lesson = st.tabs([
+        "👨‍🎓 Student Attendance",
+        "👩‍🏫 Teacher Attendance",
+        "📘 Lesson Preparation & Report"
+    ])
 
-    if students.empty:
-        st.warning("No active students in this class.")
-    else:
-        existing_df = read_sql(
-            "SELECT student_id, status, notes FROM attendance WHERE date=%s ORDER BY attendance_id ASC",
-            params=(date_str,)
-        ).drop_duplicates(subset=["student_id"], keep="last")
-        existing = existing_df.set_index("student_id").to_dict("index")
+    # -------------------- TAB 1: STUDENT ATTENDANCE --------------------
+    with tab_students:
+        students = read_sql(
+            "SELECT student_id, student_name FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+            params=(sel_class,)
+        )
 
-        with st.form("attendance_form"):
-            st.write(f"Recording attendance for **{sel_class}** on **{date_str}**")
-            records = []
-            for _, row in students.iterrows():
-                sid = int(row["student_id"])
-                prev_status = existing.get(sid, {}).get("status", "Present")
-                prev_notes = existing.get(sid, {}).get("notes", "")
+        if students.empty:
+            st.warning("No active students in this class.")
+        else:
+            existing_df = read_sql(
+                "SELECT student_id, status, notes FROM attendance WHERE date=%s ORDER BY attendance_id ASC",
+                params=(date_str,)
+            ).drop_duplicates(subset=["student_id"], keep="last")
+            existing = existing_df.set_index("student_id").to_dict("index")
 
-                c1, c2, c3 = st.columns([2, 1.5, 2.5])
-                c1.write(f"**{row['student_name']}**")
-                status_opts = ["Present", "Absent", "Late", "Excused"]
-                status = c2.selectbox(
-                    "Status",
-                    status_opts,
-                    index=status_opts.index(prev_status) if prev_status in status_opts else 0,
-                    key=f"att_st_{sid}_{date_str}",
-                    label_visibility="collapsed"
-                )
-                notes = c3.text_input(
-                    "Notes",
-                    value=prev_notes or "",
-                    placeholder="Optional note...",
-                    key=f"att_nt_{sid}_{date_str}",
-                    label_visibility="collapsed"
-                )
-                records.append((sid, status, notes))
+            with st.form("attendance_form"):
+                st.write(f"Recording student attendance for **{sel_class}** on **{date_str}**")
+                records = []
+                for _, row in students.iterrows():
+                    sid = int(row["student_id"])
+                    prev_status = existing.get(sid, {}).get("status", "Present")
+                    prev_notes = existing.get(sid, {}).get("notes", "")
 
-            if st.form_submit_button("💾 Save Attendance", use_container_width=True):
-                c = conn.cursor()
-                for sid, status, notes in records:
-                    c.execute(
-                        "SELECT attendance_id FROM attendance WHERE student_id=%s AND date=%s ORDER BY attendance_id ASC",
-                        (sid, date_str)
+                    c1, c2, c3 = st.columns([2, 1.5, 2.5])
+                    c1.write(f"**{row['student_name']}**")
+                    status_opts = ["Present", "Absent", "Late", "Excused"]
+                    status = c2.selectbox(
+                        "Status",
+                        status_opts,
+                        index=status_opts.index(prev_status) if prev_status in status_opts else 0,
+                        key=f"att_st_{sid}_{date_str}",
+                        label_visibility="collapsed"
                     )
-                    rows = c.fetchall()
-                    if rows:
-                        keep_id = rows[-1][0]
-                        if len(rows) > 1:
+                    notes = c3.text_input(
+                        "Notes",
+                        value=prev_notes or "",
+                        placeholder="Optional note...",
+                        key=f"att_nt_{sid}_{date_str}",
+                        label_visibility="collapsed"
+                    )
+                    records.append((sid, status, notes))
+
+                if st.form_submit_button("💾 Save Student Attendance", use_container_width=True):
+                    c = conn.cursor()
+                    for sid, status, notes in records:
+                        c.execute(
+                            "SELECT attendance_id FROM attendance WHERE student_id=%s AND date=%s ORDER BY attendance_id ASC",
+                            (sid, date_str)
+                        )
+                        rows = c.fetchall()
+                        if rows:
+                            keep_id = rows[-1][0]
+                            if len(rows) > 1:
+                                c.execute(
+                                    "DELETE FROM attendance WHERE student_id=%s AND date=%s AND attendance_id != %s",
+                                    (sid, date_str, keep_id)
+                                )
                             c.execute(
-                                "DELETE FROM attendance WHERE student_id=%s AND date=%s AND attendance_id != %s",
-                                (sid, date_str, keep_id)
+                                "UPDATE attendance SET status=%s, notes=%s, teacher=%s WHERE attendance_id=%s",
+                                (status, notes, teacher_name, keep_id)
                             )
-                        c.execute(
-                            "UPDATE attendance SET status=%s, notes=%s, teacher=%s WHERE attendance_id=%s",
-                            (status, notes, st.session_state.user_name, keep_id)
-                        )
-                    else:
-                        c.execute(
-                            "INSERT INTO attendance (student_id, date, status, teacher, notes) VALUES (%s,%s,%s,%s,%s)",
-                            (sid, date_str, status, st.session_state.user_name, notes)
-                        )
+                        else:
+                            c.execute(
+                                "INSERT INTO attendance (student_id, date, status, teacher, notes) VALUES (%s,%s,%s,%s,%s)",
+                                (sid, date_str, status, teacher_name, notes)
+                            )
+                    conn.commit()
+                    st.success(f"Attendance saved for {len(records)} students on {date_str}!")
+                    st.rerun()
+
+            st.subheader("Student Attendance History")
+            hist = read_sql("""
+                SELECT a.date, s.student_name, a.status, a.notes, a.teacher
+                FROM attendance a
+                JOIN students s ON a.student_id = s.student_id
+                WHERE s.grade = %s
+                ORDER BY a.date DESC, s.student_name
+            """, params=(sel_class,))
+            st.dataframe(hist, use_container_width=True)
+
+    # -------------------- TAB 2: TEACHER ATTENDANCE --------------------
+    with tab_teacher:
+        st.subheader(f"Teacher Attendance — {teacher_name}")
+        t_existing = read_sql(
+            "SELECT arrival_time, departure_time, status, notes FROM teacher_attendance WHERE teacher_name=%s AND date=%s",
+            params=(teacher_name, date_str)
+        )
+
+        default_status = "Present"
+        default_arr = datetime.time(8, 0)
+        default_dep = datetime.time(16, 0)
+        default_notes = ""
+
+        if not t_existing.empty:
+            row_t = t_existing.iloc[0]
+            default_status = row_t["status"] or "Present"
+            if row_t["arrival_time"]:
+                default_arr = row_t["arrival_time"]
+            if row_t["departure_time"]:
+                default_dep = row_t["departure_time"]
+            default_notes = row_t["notes"] or ""
+
+        with st.form("teacher_attendance_form"):
+            tc1, tc2, tc3 = st.columns(3)
+            t_status_opts = ["Present", "Late", "Absent", "Excused / On Leave"]
+            t_status = tc1.selectbox(
+                "Attendance Status",
+                t_status_opts,
+                index=t_status_opts.index(default_status) if default_status in t_status_opts else 0
+            )
+            arr_time = tc2.time_input("Arrival Time", value=default_arr)
+            dep_time = tc3.time_input("Departure Time", value=default_dep)
+            t_notes = st.text_area(
+                "Remarks / Reason (if late or absent)",
+                value=default_notes,
+                placeholder="Optional notes..."
+            )
+
+            if st.form_submit_button("💾 Save Teacher Attendance", use_container_width=True):
+                c = conn.cursor()
+                c.execute("""
+                    INSERT INTO teacher_attendance (teacher_name, date, arrival_time, departure_time, status, notes)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (teacher_name, date)
+                    DO UPDATE SET
+                        arrival_time = EXCLUDED.arrival_time,
+                        departure_time = EXCLUDED.departure_time,
+                        status = EXCLUDED.status,
+                        notes = EXCLUDED.notes,
+                        recorded_at = CURRENT_TIMESTAMP
+                """, (teacher_name, date_str, arr_time, dep_time, t_status, t_notes.strip()))
                 conn.commit()
-                st.success(f"Attendance saved for {len(records)} students on {date_str}!")
+                st.success(f"Teacher attendance recorded for {date_str}!")
                 st.rerun()
 
-        st.subheader("Attendance History for Class")
-        hist = read_sql("""
-            SELECT a.date, s.student_name, a.status, a.notes, a.teacher
-            FROM attendance a
-            JOIN students s ON a.student_id = s.student_id
-            WHERE s.grade = %s
-            ORDER BY a.date DESC, s.student_name
-        """, params=(sel_class,))
-        st.dataframe(hist, use_container_width=True)
-    conn.close()
+        st.subheader("My Attendance Log")
+        t_hist = read_sql("""
+            SELECT date, status, arrival_time, departure_time, notes
+            FROM teacher_attendance
+            WHERE teacher_name = %s
+            ORDER BY date DESC
+        """, params=(teacher_name,))
+        st.dataframe(t_hist, use_container_width=True)
+
+    # -------------------- TAB 3: LESSON PREPARATION & REPORT --------------------
+    with tab_lesson:
+        st.subheader(f"Lesson Preparation & Evaluation ({sel_class} — {date_str})")
+
+        with st.form("lesson_prep_form"):
+            lc1, lc2 = st.columns(2)
+            subject = lc1.text_input("Subject *", placeholder="e.g., Mathematics, Science, English")
+            lesson_topic = lc2.text_input("Lesson Topic *", placeholder="e.g., Solving Linear Equations")
+
+            learning_objectives = st.text_area(
+                "🎯 Learning Objectives *",
+                placeholder="What should students know or be able to do by the end of this lesson?"
+            )
+            lesson_activities = st.text_area(
+                "📝 Teaching & Learning Activities",
+                placeholder="Briefly describe the introduction, main teaching steps, and student activities..."
+            )
+
+            ex1, ex2 = st.columns(2)
+            exercises_given = ex1.text_area(
+                "✍️ Class Exercises Given",
+                placeholder="List the exercises, page numbers, or questions assigned during class..."
+            )
+            homework = ex2.text_area(
+                "🏠 Homework / Take-Home Assignment",
+                placeholder="Optional homework or follow-up practice..."
+            )
+
+            st.markdown("---")
+            st.markdown("### 📊 Post-Lesson Evaluation")
+
+            achieved_opts = ["Yes - Fully Achieved", "Partially Achieved", "No - Needs Reteaching"]
+            objective_achieved = st.selectbox("Was the learning objective achieved?", achieved_opts)
+
+            overall_comment = st.text_area(
+                "💬 Overall Comment on Objective Achievement *",
+                placeholder="Summarize student understanding, participation, and how well the objective was met..."
+            )
+
+            ev1, ev2 = st.columns(2)
+            challenges = ev1.text_area(
+                "⚠️ Challenges / Students Needing Support",
+                placeholder="Any concepts students struggled with or specific students needing extra help..."
+            )
+            next_steps = ev2.text_area(
+                "➡️ Next Steps for Next Lesson",
+                placeholder="Plan for the next class based on today's outcome..."
+            )
+
 # ====================== PAYMENTS ======================
 elif menu == "Payments":
     st.header("💳 School Fees, Petty Cash Expenses & Monthly Budget")
