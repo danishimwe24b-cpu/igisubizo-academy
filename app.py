@@ -67,6 +67,52 @@ class NeonConnWrapper:
             self.raw.close()
 
 def get_conn():
+    def get_conn():
+    # ... your existing connection code stays here ...
+    return conn
+
+# --- PASTE THIS RIGHT BELOW get_conn() ---
+def ensure_attendance_and_lesson_tables():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS teacher_attendance (
+            attendance_id SERIAL PRIMARY KEY,
+            teacher_name VARCHAR(150) NOT NULL,
+            date DATE NOT NULL,
+            arrival_time TIME,
+            departure_time TIME,
+            status VARCHAR(30) NOT NULL,
+            notes TEXT,
+            recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (teacher_name, date)
+        );
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS lesson_reports (
+            report_id SERIAL PRIMARY KEY,
+            teacher_name VARCHAR(150) NOT NULL,
+            grade VARCHAR(50) NOT NULL,
+            subject VARCHAR(100) NOT NULL,
+            lesson_date DATE NOT NULL,
+            lesson_topic VARCHAR(255) NOT NULL,
+            learning_objectives TEXT NOT NULL,
+            lesson_activities TEXT,
+            exercises_given TEXT,
+            homework TEXT,
+            objective_achieved VARCHAR(50) NOT NULL,
+            overall_comment TEXT,
+            challenges TEXT,
+            next_steps TEXT,
+            prepared_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (teacher_name, grade, subject, lesson_date)
+        );
+    """)
+    conn.commit()
+    conn.close()
+
+ensure_attendance_and_lesson_tables()
+
     return NeonConnWrapper()
 
 def read_sql(query, params=None):
