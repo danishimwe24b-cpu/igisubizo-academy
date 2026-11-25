@@ -1165,43 +1165,43 @@ elif menu == "Payments":
 
             pending_students_df = class_students_df[~class_students_df["student_id"].isin(paid_ids)].copy()
             if not class_pays_df.empty:
-                pending_students_df = pending_students_df.merge(
-                    class_pays_df[["student_id", "status", "amount"]],
-                    on="student_id",
-                    how="left"
-                )
-                pending_students_df["Payment Status"] = pending_students_df["status"].fillna("Not Recorded (Pending)")
-            else:
-                pending_students_df["Payment Status"] = "Not Recorded (Pending)"
-
-            pending_students_df["Bonus Requested?"] = pending_students_df["student_id"].apply(
-                lambda x: "Yes (Bonus / Extra Days)" if x in bonus_ids else "No"
+                     st.subheader("All-Months Financial Overview (Collected vs. Expenses)")
+        all_months_overview = read_sql("""
+            WITH months AS (
+                SELECT DISTINCT month_year FROM payments
+                UNION
+                SELECT DISTINCT month_year FROM expenses
+                UNION
+                SELECT DISTINCT month_year FROM monthly_budgets
+            ),
+            p_tot AS (
+                SELECT month_year, COALESCE(SUM(amount), 0) AS collected
+                FROM payments
+                WHERE status = 'Paid'
+                GROUP BY month_year
+            ),
+            e_tot AS (
+                SELECT month_year, COALESCE(SUM(amount), 0) AS expenses
+                FROM expenses
+                GROUP BY month_year
+            ),
+            b_tot AS (
+                SELECT month_year, COALESCE(SUM(planned_amount), 0) AS budgeted
+                FROM monthly_budgets
+                GROUP BY month_year
             )
-            pending_display_df = pending_students_df[
-                ["student_id", "student_name", "parent_name", "parent_phone", "Payment Status", "Bonus Requested?"]
-            ]
-
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Total Students", len(class_students_df))
-            m2.metric("✅ Paid", len(paid_list_df))
-            m3.metric("⏳ Pending / Not Paid", len(pending_display_df))
-            m4.metric("🎁 Bonus / Extra Days", len(class_bonus_df))
-
-            st.divider()
-
-            st.markdown(f"### ✅ Paid Students — {view_class} ({view_month})")
-            if paid_list_df.empty:
-                st.info(f"No students have paid yet in {view_class} for {view_month}.")
-            else:
-                st.dataframe(paid_list_df, use_container_width=True)
-
-            st.markdown(f"### ⏳ Pending / Remained Not Paid — {view_class} ({view_month})")
-            if pending_display_df.empty:
-                st.success(f"All students in {view_class} have paid for {view_month}!")
-            else:
-                st.dataframe(pending_display_df, use_container_width=True)
-
-               """)
+            SELECT
+                m.month_year AS "Month",
+                COALESCE(p.collected, 0) AS "Collected (RWF)",
+                COALESCE(b.budgeted, 0) AS "Planned Budget (RWF)",
+                COALESCE(e.expenses, 0) AS "Total Expenses (RWF)",
+                (COALESCE(p.collected, 0) - COALESCE(e.expenses, 0)) AS "Net Balance (RWF)"
+            FROM months m
+            LEFT JOIN p_tot p ON m.month_year = p.month_year
+            LEFT JOIN e_tot e ON m.month_year = e.month_year
+            LEFT JOIN b_tot b ON m.month_year = b.month_year
+            ORDER BY m.month_year DESC
+        """)
         if not all_months_overview.empty:
             st.dataframe(all_months_overview, use_container_width=True)
 
