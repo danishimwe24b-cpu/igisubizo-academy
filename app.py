@@ -1314,26 +1314,276 @@ elif menu == "Report Cards":
         st.dataframe(class_students, use_container_width=True)
 # ====================== CODE OF CONDUCT ======================
 elif menu == "Code of Conduct":
-    st.header("📜 School Code of Conduct")
+    st.header("IGISUBIZO ACADEMY School Code of Conduct")
     st.markdown("""
-    ### Igisubizo Academy – Code of Conduct
+    ### Applies To:** Students, Teachers, Administration, Support Staff
 
-    **For Students:**
-    - Respect teachers, staff and fellow students
-    - Attend classes regularly and on time
-    - Complete all homework and assignments
-    - Wear the correct school uniform
-    - No fighting, bullying or bad language
-    - Take care of school property
+   
 
-    **For Teachers & Staff:**
-    - Be professional and punctual
-    - Prepare lessons properly
-    - Treat all students fairly
-    - Report any serious issues to Administration
+## CODE OF CONDUCT AND PROFESSIONAL ETHICS POLICY
 
-    **Consequences:**
-    - Warning → Conduct record → Parent meeting → Suspension
+
+
+### 1. PURPOSE OF THE POLICY
+
+Igisubizo Academy is committed to providing quality education in a safe, respectful, inclusive, and disciplined environment. Every child deserves an opportunity to learn, develop their abilities, and reach their full potential.
+
+This policy establishes clear standards of conduct for everyone working, studying, or participating in activities at Igisubizo Academy. It protects the rights of children, recognizes the professional rights of teachers and staff, and establishes accountability for misconduct.
+
+Every member of the school community must understand that protecting students, maintaining professional standards, and supporting learning are shared responsibilities.
+
+### 2. OUR CORE VALUES
+
+Every decision and action at Igisubizo Academy must reflect the following values:
+
+1. **Child Protection:** Every child has the right to safety, dignity, and protection from abuse.
+2. **Professionalism:** Teachers and staff must demonstrate competence, responsibility, honesty, and integrity.
+3. **Respect:** Every person must be treated fairly, without discrimination, humiliation, or harassment.
+4. **Accountability:** Everyone is responsible for their actions and must accept appropriate consequences for misconduct.
+5. **Excellence:** Teaching, learning, and school operations must meet established quality standards.
+6. **Integrity:** No person may use their position for personal gain, exploitation, or dishonesty.
+7. **Inclusion:** Every student deserves equal opportunities to participate and learn, regardless of background, disability, gender, or financial circumstances.
+
+### 3. NON-NEGOTIABLE STANDARDS
+
+The following standards are mandatory. No teacher, staff member, administrator, or student is above these rules.
+
+**NON-NEGOTIABLE 1: ZERO TOLERANCE FOR CHILD ABUSE**
+
+Physical abuse, sexual abuse, sexual exploitation, harassment, threats, degrading treatment, and deliberate emotional harm are strictly prohibited. No staff member may use physical punishment or humiliate a student as a form of discipline.
+
+**NON-NEGOTIABLE 2: NO ALCOHOL OR DRUG IMPAIRMENT AT WORK**
+
+Teachers and staff must never report for duty under the influence of alcohol or illegal drugs, consume alcohol or illegal drugs while on duty, or teach or supervise students while impaired by any substance. A person suspected of being impaired must not be permitted to supervise students while the concern is assessed. The administration must take immediate protective action and follow a fair disciplinary process.
+
+**NON-NEGOTIABLE 3: NO TEACHING WITHOUT LESSON PREPARATION**
+
+Every teacher must prepare the lesson before entering the classroom. Preparation includes clear learning objectives, appropriate teaching materials, planned activities, and a method for checking students' understanding.
+
+Entering class without preparing the lesson is a serious professional failure. An emergency or other genuine obstacle must be communicated to the academic supervisor as soon as possible, and an alternative teaching plan must be arranged. Repeated failure to prepare, or deliberate disregard of this requirement, may result in formal disciplinary action.
+
+**NON-NEGOTIABLE 4: NO UNAUTHORIZED ABSENCE OR ABANDONMENT OF STUDENTS**
+
+Teachers and staff must attend work according to their schedules. No teacher may leave a class, leave students unsupervised, or abandon assigned responsibilities without proper authorization and a safe handover.
+
+**NON-NEGOTIABLE 5: NO DISCRIMINATION OR FAVORITISM**
+
+Every student must have fair access to teaching, assessment, support, and school activities. No student may be mistreated because of poverty,  status, disability, gender, religion, family background, academic performance, or any other personal characteristic.
+
+**NON-NEGOTIABLE 6: NO SEXUAL MISCONDUCT OR EXPLOITATION**
+
+Any sexual activity, sexual harassment, grooming, or exploitation involving a staff member and a student is prohibited. Where a student is under 18, sexual activity with that child is prohibited regardless of purported consent. No employee may request money, gifts, favors, or sexual activity in exchange for grades, admission, protection, or special treatment.
+
+**NON-NEGOTIABLE 7: NO FRAUD, THEFT, OR MISUSE OF SCHOOL RESOURCES**
+
+Stealing school property, falsifying attendance or academic records, cheating, misusing school funds, taking unauthorized payments, or deliberately falsifying financial information is prohibited.
+
+**NON-NEGOTIABLE 8: NO RETALIATION AGAINST PEOPLE WHO REPORT CONCERNS**
+
+No student, teacher, or staff member may be threatened, punished, intimidated, or discriminated against for reporting a concern in good faith. Knowingly making a false allegation may be addressed through a fair process, but an unsubstantiated report is not automatically a false report.
+
+### 4. CODE OF CONDUCT FOR TEACHERS
+
+Every teacher at Igisubizo Academy must meet the following professional standards.
+
+#### 4.1 Lesson Planning and Teaching Quality
+
+Teachers must:
+
+- Prepare lesson plans before teaching each lesson.
+- Follow the approved curriculum, timetable, and learning objectives.
+- Arrive in class with the required teaching and learning materials.
+- Explain concepts clearly and use appropriate teaching methods.
+- Give students opportunities to ask questions, practise, and receive feedback.
+- Assign and mark homework and assessments appropriately.
+- Maintain accurate attendance, assessment, and academic progress records.
+- Identify students who need additional support and take reasonable steps to help them.
+- Never invent lesson preparation records or falsify academic results.
+- Participate in professional development and accept constructive feedback.
+
+**Required standard:** A teacher must not enter class intending to improvise the entire lesson without preparation. Where an unexpected emergency prevents normal preparation, the teacher must inform the supervisor and arrange a suitable alternative.
+
+#### 4.2 Attendance and Punctuality
+
+Teachers must:
+
+- Report to work on time and attend all assigned lessons.
+- Notify the administration promptly when illness or an emergency prevents attendance.
+- Obtain approval for leave according to school procedures.
+- Never ask an unauthorized person to take over a class.
+- Never leave students alone without an approved supervision arrangement.
+- Use teaching hours for teaching and learning-related responsibilities.
+
+Repeated lateness, unexplained absence, missed lessons, or leaving students unsupervised will be treated as misconduct.
+
+#### 4.3 Professional Behavior
+
+Teachers must:
+
+- Maintain professional language, dress, conduct, and relationships.
+- Never report for work while impaired by alcohol or drugs.
+- Never smoke or consume intoxicating substances in prohibited school areas.
+- Avoid shouting at, insulting, threatening, or humiliating students.
+- Never demand personal payments or gifts from students or parents.
+- Never use student information, photographs, or videos without appropriate authorization and consent.
+- Maintain appropriate boundaries when communicating with students in person or online.
+- Report safeguarding concerns immediately through the designated reporting procedure.
+
+#### 4.4 Fairness and Accountability
+
+Teachers must assess students fairly, provide equal learning opportunities, protect confidential information, and explain academic decisions professionally.
+
+No teacher may intentionally lower a student's marks because of a personal disagreement or increase marks in exchange for money, gifts, or favors.
+
+### 5. CODE OF CONDUCT FOR ADMINISTRATION AND SUPPORT STAFF
+
+All administrators and support staff must:
+
+1. Perform their assigned duties honestly and competently.
+2. Respect students, teachers, parents, colleagues, and visitors.
+3. Protect children and report suspected abuse or unsafe conditions.
+4. Maintain confidentiality and safeguard school records.
+5. Use school funds, equipment, and materials only for authorized purposes.
+6. Follow financial procedures and maintain accurate records.
+7. Avoid conflicts of interest, bribery, fraud, and favoritism.
+8. Report to work fit for duty and never supervise children while impaired.
+9. Carry out responsibilities according to approved schedules and procedures.
+10. Treat employees fairly and avoid discrimination, intimidation, and abuse of authority.
+
+School leaders must also provide reasonable supervision, communicate expectations clearly, and apply disciplinary procedures consistently.
+
+### 6. RIGHTS AND RESPONSIBILITIES OF STUDENTS
+
+Students have the right to:
+
+- Learn in a safe and supportive environment.
+- Be treated with dignity and without discrimination.
+- Receive fair teaching, assessment, and feedback.
+- Express concerns respectfully and be heard.
+- Report bullying, abuse, or unsafe situations without retaliation.
+- Have their personal information handled appropriately.
+- Receive clear explanations of school rules and disciplinary decisions.
+
+Students are responsible for:
+
+- Respecting teachers, staff, fellow students, and visitors.
+- Attending lessons regularly and arriving on time.
+- Completing assignments and participating in learning.
+- Avoiding bullying, fighting, cheating, stealing, and abusive language.
+- Following reasonable school instructions.
+- Protecting school property and keeping the environment clean.
+- Reporting serious safety concerns to a trusted adult.
+
+### 7. RIGHTS AND RESPONSIBILITIES OF TEACHERS AND STAFF
+
+Igisubizo Academy recognizes that teachers and staff also have rights that must be protected.
+
+They have the right to:
+
+- Be treated with dignity, fairness, and professional respect.
+- Work in a reasonably safe environment.
+- Receive clear job responsibilities, schedules, and performance expectations.
+- Receive agreed compensation and employment benefits in accordance with their contracts and applicable law.
+- Raise concerns about working conditions without retaliation.
+- Receive feedback and a fair opportunity to respond to allegations.
+- Be protected against discrimination, harassment, and arbitrary disciplinary action.
+- Receive appropriate guidance, supervision, and professional development opportunities.
+
+These rights do not remove the responsibility to meet professional standards or protect students.
+
+### 8. CHILD SAFEGUARDING AND REPORTING
+
+Every person at Igisubizo Academy has a responsibility to protect children from harm.
+
+When a safeguarding concern arises:
+
+1. Take immediate steps to protect the child from further harm.
+2. Report the concern promptly to the designated safeguarding person or school administration.
+3. Record factual information accurately and confidentially.
+4. Do not interrogate the child, conduct an unauthorized investigation, or promise absolute secrecy.
+5. Refer serious matters to the appropriate child protection or other competent authorities in accordance with applicable law.
+6. Protect the child from retaliation and unnecessary exposure of personal information.
+
+If the concern involves the head of the school or the designated safeguarding person, the report must be directed to an independent, authorized alternative.
+
+The school must not conceal allegations or prioritize its reputation over the safety of a child.
+
+### 9. DISCIPLINARY ACTIONS AND CONSEQUENCES
+
+Igisubizo Academy will take misconduct seriously. The response will depend on the nature of the violation, its impact, the available evidence, any previous misconduct, and the requirements of applicable law.
+
+#### 9.1 Serious Misconduct
+
+Examples include:
+
+- Reporting for work intoxicated or teaching while impaired.
+- Physical punishment, child abuse, sexual misconduct, or exploitation.
+- Deliberately abandoning students or placing them in danger.
+- Repeatedly refusing to prepare lessons after clear instructions and reasonable support.
+- Fraud, theft, falsification of records, or misuse of school funds.
+- Retaliation against a person who reports a concern.
+- Deliberately concealing serious safeguarding incidents.
+
+Possible measures include immediate protective action, removal from student-facing duties while an investigation is conducted where appropriate, a formal written warning, suspension in accordance with applicable rules, and termination of employment where justified.
+
+Serious safeguarding allegations must be referred to the appropriate authorities when required. Any temporary removal from duties is a protective measure, not a declaration that the allegation has been proven.
+
+#### 9.2 Repeated Poor Performance or Misconduct
+
+Examples include:
+
+- Repeatedly arriving late.
+- Regularly entering class without prepared lessons.
+- Frequently missing lessons without authorization.
+- Failing to mark assignments or maintain required records.
+- Repeatedly ignoring reasonable instructions.
+
+Depending on the circumstances, the school may use:
+
+1. A documented supervisory meeting.
+2. A written warning and clear expectations.
+3. A performance improvement plan with a deadline.
+4. A final written warning where justified.
+5. Further disciplinary action, including termination where appropriate and lawful.
+
+Repeated misconduct after warnings may lead to stronger consequences. However, child abuse, sexual exploitation, serious fraud, and other grave violations do not need to be treated as minor first-time offenses.
+
+#### 9.3 Student Misconduct
+
+Student discipline should be age-appropriate, proportionate, and focused on safety, responsibility, and learning.
+
+Possible measures include a verbal warning, a documented behavior meeting, parent or guardian involvement, a behavior improvement plan, and suspension or other serious measures where justified and lawful.
+
+Physical punishment, degrading treatment, discrimination, and denial of a child's basic protection are never acceptable disciplinary measures.
+
+### 10. FAIR DISCIPLINARY PROCEDURES
+
+Before imposing a disciplinary sanction, the school will, as appropriate to the seriousness and urgency of the case:
+
+- Record the alleged misconduct.
+- Take immediate steps to protect students and other affected persons.
+- Inform the person concerned of the allegations and give them a reasonable opportunity to respond.
+- Review relevant evidence impartially.
+- Keep confidential records of the process and outcome.
+- Communicate the decision and any applicable review or appeal procedure.
+- Apply sanctions consistently and in accordance with employment agreements, school policies, and applicable Rwandan law.
+
+Immediate protective action may be necessary before the investigation is complete. It must not be used as a substitute for a fair investigation.
+
+### 11. IMPLEMENTATION AND COMPLIANCE
+
+The school administration is responsible for communicating this policy, providing appropriate orientation, maintaining reporting procedures, and ensuring consistent implementation.
+
+Every teacher and staff member must receive and acknowledge the policy before assuming duties or as part of the school's formal induction process. Students and parents or guardians must receive an age-appropriate explanation of the student rules.
+
+The policy should be reviewed periodically and updated when necessary to reflect changes in school operations, child protection requirements, and applicable law.
+
+### 12. DECLARATION AND SIGNATURE
+
+I confirm that I have read and understood the Igisubizo Academy Code of Conduct and Professional Ethics Policy. I agree to follow its requirements, protect the rights and safety of children, respect the rights of colleagues and students, and accept fair disciplinary procedures for violations.
+
+**Full Name:** Dan Ishimwe/ Murwanashyaka Elie
+
     """)
 
 # ====================== PERMISSION & EMERGENCY ======================
