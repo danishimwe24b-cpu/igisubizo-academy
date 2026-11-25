@@ -253,6 +253,44 @@ def allowed_subjects():
     if st.session_state.assigned_subjects == "ALL":
         return SUBJECT_LIST
     return [x.strip() for x in st.session_state.assigned_subjects.split(",") if x.strip()]
+    # ====================== SIDEBAR ======================
+with st.sidebar:
+    if os.path.exists("logo.png"):
+        st.image("logo.png", width=120)
+    st.success(f"👤 **{st.session_state.user_name}**\n\n{st.session_state.user_role}")
+    if st.session_state.user_role == "Teacher":
+        st.caption(f"Classes: {st.session_state.assigned_classes}")
+        st.caption(f"Subjects: {st.session_state.assigned_subjects}")
+
+    if st.button("Logout", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+    st.divider()
+
+    if st.session_state.user_role == "Administration":
+        menu = st.radio("Navigation", [
+            "Dashboard", "Students", "Staff & Teachers", "Grades",
+            "Attendance", "Payments", "Report Cards", "Code of Conduct",
+            "Permission & Emergency", "Notifications", "Messages", "Removed Records"
+        ])
+    elif st.session_state.user_role == "Teacher":
+        menu = st.radio("Navigation", [
+            "Grades", "Attendance", "Report Cards", "Code of Conduct",
+            "Permission & Emergency", "Notifications", "Messages"
+        ])
+    else:
+        menu = st.radio("Navigation", [
+            "Students", "Payments", "Report Cards", "Code of Conduct",
+            "Permission & Emergency", "Messages"
+        ])
+
+if "menu" not in locals():
+    menu = "Dashboard"
+
+if menu == "Dashboard":
+
 if "menu" not in locals():
     menu = "Dashboard"
 
