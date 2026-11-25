@@ -217,3 +217,33 @@ def generate_report_card_pdf(student_row, grades_df, term):
     doc.build(elements)
     buffer.seek(0)
     return buffer
+CREATE TABLE IF NOT EXISTS teacher_attendance (
+    attendance_id SERIAL PRIMARY KEY,
+    teacher_name VARCHAR(150) NOT NULL,
+    date DATE NOT NULL,
+    arrival_time TIME,
+    departure_time TIME,
+    status VARCHAR(30) NOT NULL,
+    notes TEXT,
+    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (teacher_name, date)
+);
+
+CREATE TABLE IF NOT EXISTS lesson_reports (
+    report_id SERIAL PRIMARY KEY,
+    teacher_name VARCHAR(150) NOT NULL,
+    grade VARCHAR(50) NOT NULL,
+    subject VARCHAR(100) NOT NULL,
+    lesson_date DATE NOT NULL,
+    lesson_topic VARCHAR(255) NOT NULL,
+    learning_objectives TEXT NOT NULL,
+    lesson_activities TEXT,
+    exercises_given TEXT,
+    homework TEXT,
+    objective_achieved VARCHAR(50) NOT NULL,
+    overall_comment TEXT,
+    challenges TEXT,
+    next_steps TEXT,
+    prepared_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (teacher_name, grade, subject, lesson_date)
+);
