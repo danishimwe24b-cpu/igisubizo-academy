@@ -243,6 +243,72 @@ def init_db():
 
     conn.commit()
     conn.close()
+        conn.commit()
+    conn.close()
+
+
+# ====================== PAGE SETUP ======================
+st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
+
+init_db()
+
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        background: linear-gradient(90deg, #0B6E4F 0%, #0A3D62 100%);
+        padding: 1.2rem;
+        border-radius: 12px;
+        color: white;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ====================== SESSION ======================
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_name = ""
+    st.session_state.user_role = ""
+    st.session_state.username = ""
+    st.session_state.assigned_classes = "ALL"
+    st.session_state.assigned_subjects = "ALL"
+
+# ====================== LOGIN ======================
+if not st.session_state.logged_in:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if os.path.exists("logo.png"):
+            st.image("logo.png", width=180)
+        st.markdown("<h2 style='text-align:center;'>IGISUBIZO ACADEMY</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;'>School Management System</p>", unsafe_allow_html=True)
+
+        st.info("Default Admin: username `admin` / password `admin123`")
+
+        with st.form("login_form"):
+            role = st.selectbox("Select Role", ["Administration", "Teacher", "Register Officer"])
+            uname = st.text_input("Username").strip()
+            pwd = st.text_input("Password", type="password").strip()
+            if st.form_submit_button("Login", use_container_width=True):
+                df = read_sql(
+                    "SELECT * FROM staff WHERE LOWER(username)=%s AND password=%s AND role=%s AND status='Active'",
+                    params=(uname.lower(), pwd, role)
+                )
+                if not df.empty:
+                    rec = df.iloc[0]
+                    st.session_state.logged_in = True
+                    st.session_state.user_name = rec["full_name"]
+                    st.session_state.user_role = rec["role"]
+                    st.session_state.username = rec["username"]
+                    st.session_state.assigned_classes = rec["assigned_classes"] or "ALL"
+                    st.session_state.assigned_subjects = rec["assigned_subjects"] or "ALL"
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials or role")
+    st.stop()
+
+
 # ====================== HELPERS ======================
 def allowed_classes():
     if st.session_state.assigned_classes == "ALL":
