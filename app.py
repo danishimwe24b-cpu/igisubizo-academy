@@ -243,10 +243,7 @@ def init_db():
 
     conn.commit()
     conn.close()
-        conn.commit()
-    conn.close()
-
-
+    
 # ====================== PAGE SETUP ======================
 st.set_page_config(page_title="Igisubizo Academy", page_icon="🎓", layout="wide")
 
