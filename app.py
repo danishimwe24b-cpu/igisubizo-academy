@@ -249,11 +249,14 @@ def allowed_classes():
         return CLASS_LEVELS
     return [x.strip() for x in st.session_state.assigned_classes.split(",") if x.strip()]
 
+
 def allowed_subjects():
     if st.session_state.assigned_subjects == "ALL":
         return SUBJECT_LIST
     return [x.strip() for x in st.session_state.assigned_subjects.split(",") if x.strip()]
-    # ====================== SIDEBAR ======================
+
+
+# ====================== SIDEBAR ======================
 with st.sidebar:
     if os.path.exists("logo.png"):
         st.image("logo.png", width=120)
@@ -290,15 +293,6 @@ if "menu" not in locals():
     menu = "Dashboard"
 
 if menu == "Dashboard":
-
-if "menu" not in locals():
-    menu = "Dashboard"
-
-if "menu" not in locals():
-    menu = "Dashboard"
-
-if menu == "Dashboard":
-
     st.markdown("<div class='main-header'><h2>📊 Administration Dashboard</h2></div>", unsafe_allow_html=True)
 
     active_students = read_sql("SELECT COUNT(*) as c FROM students WHERE status='Active'").iloc[0]["c"]
