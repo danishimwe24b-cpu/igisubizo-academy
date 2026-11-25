@@ -62,15 +62,13 @@ class NeonConnWrapper:
         if not self.raw.closed:
             self.raw.commit()
 
-    def close(self):
+        def close(self):
         if not self.raw.closed:
             self.raw.close()
 
 def get_conn():
+    return NeonConnWrapper()
 
-    return conn
-
-# --- PASTE THIS RIGHT BELOW get_conn() ---
 def ensure_attendance_and_lesson_tables():
     conn = get_conn()
     c = conn.cursor()
@@ -112,12 +110,11 @@ def ensure_attendance_and_lesson_tables():
 
 ensure_attendance_and_lesson_tables()
 
-    return NeonConnWrapper()
-
 def read_sql(query, params=None):
     """Reads data directly using a fresh psycopg2 connection."""
     conn = psycopg2.connect(get_db_url())
     try:
+
         cur = conn.cursor()
         query_pg = query.replace("?", "%s")
         if params is not None:
