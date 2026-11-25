@@ -1197,22 +1197,20 @@ elif menu == "Payments":
 
             st.markdown(f"### ⏳ Pending / Remained Not Paid — {view_class} ({view_month})")
             if pending_display_df.empty:
-                st.success(f"All students in {view_class} have paid for {view_month}!")
-            else:
-                st.dataframe(pending_display_df, use_container_width=True)
-
-            st.markdown(f"### 🎁 Bonus / Extra Days Requested — {view_class} ({view_month})")
-            if class_bonus_df.empty:
-
-   # ====================== REPORT CARDS ======================
+                              if st.form_submit_button("💾 Update Payment", use_container_width=True):
+                    conn.execute(
+                        "UPDATE payments SET amount=%s, status=%s, paid_date=%s, recorded_by=%s WHERE payment_id=%s",
+                        (upd_amount, upd_status, str(upd_date), st.session_state.user_name, int(rec["payment_id"]))
+                    )
+                    conn.commit()
+                    st.success("Payment record updated!")
+                    st.rerun()
 
     conn.close()
 
 # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
     st.header("📄 Report Cards")
-
- 
     st.header("📄 Report Cards")
     classes = allowed_classes() if st.session_state.user_role == "Teacher" else CLASS_LEVELS
 
