@@ -1206,6 +1206,11 @@ elif menu == "Payments":
 
    # ====================== REPORT CARDS ======================
 
+    conn.close()
+
+# ====================== REPORT CARDS ======================
+elif menu == "Report Cards":
+    st.header("📄 Report Cards")
 
  
     st.header("📄 Report Cards")
