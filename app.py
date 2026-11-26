@@ -1056,14 +1056,15 @@ elif menu == "Payments":
 
     # -------------------- ROOM 1: RECORD PAYMENT --------------------
     with tab1:
+        st.subheader("💵 Record Student Fee Payment")
         sel_class = st.selectbox("Select Class", CLASS_LEVELS, key="pay_class")
         students = read_sql(
-            "SELECT student_id, student_name FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+            "SELECT student_id, student_name FROM students WHERE TRIM(grade)=TRIM(%s) AND status='Active' ORDER BY student_name",
             params=(sel_class,)
         )
 
         if students.empty:
-            st.warning("No active students in this class.")
+            st.warning(f"No active students found in {sel_class}.")
         else:
             student_dict = {
                 f"{row['student_name']} (ID #{row['student_id']})": int(row["student_id"])
@@ -1073,7 +1074,7 @@ elif menu == "Payments":
             sid = student_dict[sel_student_label]
 
             paid_months_df = read_sql(
-                "SELECT month_year, amount, status, paid_date FROM payments WHERE student_id=%s ORDER BY month_year ASC",
+                "SELECT month_year, amount, status, paid_date FROM payments WHERE student_id=%s ORDER BY payment_id ASC",
                 params=(sid,)
             )
             if not paid_months_df.empty:
@@ -1084,7 +1085,7 @@ elif menu == "Payments":
 
             with st.form("payment_form"):
                 col1, col2 = st.columns(2)
-                month_year = col1.selectbox("Select Month (Current or Future)", PAYMENT_MONTHS)
+                month_year = col1.selectbox("Select Month", PAYMENT_MONTHS)
                 amount = col2.number_input("Amount (RWF)", min_value=0, value=MONTHLY_FEE, step=500)
 
                 col3, col4 = st.columns(2)
@@ -1094,7 +1095,7 @@ elif menu == "Payments":
                 if st.form_submit_button("💾 Record Payment", use_container_width=True):
                     cur = conn.cursor()
                     cur.execute(
-                        "SELECT payment_id, status FROM payments WHERE student_id=%s AND month_year=%s",
+                        "SELECT payment_id, status FROM payments WHERE student_id=%s AND TRIM(month_year)=TRIM(%s)",
                         (sid, month_year)
                     )
                     existing_pay = cur.fetchone()
@@ -1102,185 +1103,118 @@ elif menu == "Payments":
                     if existing_pay:
                         st.error(
                             f"⚠️ **{sel_student_label}** is already recorded for **{month_year}** "
-                            f"(Status: **{existing_pay[1]}**). Only one record per student per month is allowed."
+                            f"(Status: **{existing_pay[1]}**). Use Room 6 to update an existing payment."
                         )
                     else:
                         try:
                             cur.execute("""
                                 INSERT INTO payments (student_id, month_year, amount, status, paid_date, recorded_by)
                                 VALUES (%s,%s,%s,%s,%s,%s)
-                            """, (sid, month_year, amount, status, str(paid_date), st.session_state.user_name))
+                            """, (sid, month_year.strip(), amount, status, str(paid_date), st.session_state.user_name))
                             conn.commit()
-                            st.success(f"Payment recorded for **{sel_student_label}** ({sel_class}) for **{month_year}**!")
+                            st.success(f"✅ Payment recorded for **{sel_student_label}** ({sel_class}) for **{month_year}**!")
                             st.rerun()
-                        except psycopg2.IntegrityError:
+                        except Exception as e:
                             conn.raw.rollback()
-                            st.error(f"⚠️ Duplicate blocked: **{sel_student_label}** already has a payment for **{month_year}**.")
+                            st.error(f"Could not save payment: {e}")
 
     # -------------------- ROOM 2: CLASS MONTHLY LISTS (PAID / PENDING / BONUS) --------------------
     with tab2:
-        st.subheader("📋 Class Monthly Payment Status & Bonus / Extra Days")
+        st.subheader("📋 Class Monthly Lists: Paid, Pending & Bonus / Extra Days")
 
         f1, f2 = st.columns(2)
         view_class = f1.selectbox("Select Class", CLASS_LEVELS, key="status_view_class")
         view_month = f2.selectbox("Select Month", PAYMENT_MONTHS, key="status_view_month")
 
-        class_students_df = read_sql(
-            "SELECT student_id, student_name, parent_name, parent_phone FROM students WHERE grade=%s AND status='Active' ORDER BY student_name",
+        # 1. All active students in this class
+        all_class_students = read_sql(
+            "SELECT student_id, student_name, parent_name, parent_phone FROM students WHERE TRIM(grade)=TRIM(%s) AND status='Active' ORDER BY student_name",
             params=(view_class,)
         )
 
-        class_pays_df = read_sql("""
-            SELECT p.student_id, p.amount, p.status, p.paid_date, p.recorded_by
+        # 2. Paid students in this class & month
+        paid_students_df = read_sql("""
+            SELECT s.student_id AS "ID",
+                   s.student_name AS "Student Name",
+                   p.amount AS "Amount Paid (RWF)",
+                   p.paid_date AS "Date Paid",
+                   p.recorded_by AS "Recorded By"
             FROM payments p
             JOIN students s ON p.student_id = s.student_id
-            WHERE s.grade=%s AND p.month_year=%s
+            WHERE TRIM(s.grade) = TRIM(%s)
+              AND TRIM(p.month_year) = TRIM(%s)
+              AND LOWER(TRIM(p.status)) = 'paid'
+            ORDER BY s.student_name
         """, params=(view_class, view_month))
 
-        class_bonus_df = read_sql("""
-            SELECT b.bonus_id, b.student_id, s.student_name, b.extra_days, b.promised_pay_date,
-                   b.reason, b.status AS bonus_status, b.recorded_by
+        # 3. Pending / Not Paid students in this class & month
+        pending_students_df = read_sql("""
+            SELECT s.student_id AS "ID",
+                   s.student_name AS "Student Name",
+                   COALESCE(s.parent_name, '-') AS "Parent Name",
+                   COALESCE(s.parent_phone, '-') AS "Parent Phone",
+                   COALESCE(p.status, 'Not Paid (Pending)') AS "Payment Status",
+                   CASE WHEN b.bonus_id IS NOT NULL THEN 'Yes (Bonus Requested)' ELSE 'No' END AS "Bonus / Extra Days"
+            FROM students s
+            LEFT JOIN payments p
+              ON s.student_id = p.student_id AND TRIM(p.month_year) = TRIM(%s)
+            LEFT JOIN payment_bonus_requests b
+              ON s.student_id = b.student_id AND TRIM(b.month_year) = TRIM(%s)
+            WHERE TRIM(s.grade) = TRIM(%s)
+              AND s.status = 'Active'
+              AND (p.status IS NULL OR LOWER(TRIM(p.status)) != 'paid')
+            ORDER BY s.student_name
+        """, params=(view_month, view_month, view_class))
+
+        # 4. Bonus / Extra Days requests in this class & month
+        bonus_students_df = read_sql("""
+            SELECT b.bonus_id AS "Bonus ID",
+                   s.student_name AS "Student Name",
+                   b.extra_days AS "Extra Days",
+                   b.promised_pay_date AS "Promised Pay Date",
+                   COALESCE(b.reason, '-') AS "Reason",
+                   COALESCE(p.status, 'Pending Payment') AS "Current Fee Status",
+                   b.recorded_by AS "Recorded By"
             FROM payment_bonus_requests b
             JOIN students s ON b.student_id = s.student_id
-            WHERE s.grade=%s AND b.month_year=%s
+            LEFT JOIN payments p
+              ON s.student_id = p.student_id AND TRIM(p.month_year) = TRIM(%s)
+            WHERE TRIM(s.grade) = TRIM(%s)
+              AND TRIM(b.month_year) = TRIM(%s)
             ORDER BY b.bonus_id DESC
-        """, params=(view_class, view_month))
+        """, params=(view_month, view_class, view_month))
 
-        if class_students_df.empty:
+        if all_class_students.empty:
             st.warning(f"No active students found in {view_class}.")
         else:
-            paid_ids = set(
-                class_pays_df[class_pays_df["status"] == "Paid"]["student_id"].tolist()
-            ) if not class_pays_df.empty else set()
-
-            bonus_ids = set(
-                class_bonus_df["student_id"].tolist()
-            ) if not class_bonus_df.empty else set()
-
-            paid_list_df = class_students_df[class_students_df["student_id"].isin(paid_ids)].merge(
-                class_pays_df[class_pays_df["status"] == "Paid"],
-                on="student_id",
-                how="left"
-            )[["student_id", "student_name", "amount", "paid_date", "recorded_by"]]
-
-            pending_students_df = class_students_df[~class_students_df["student_id"].isin(paid_ids)].copy()
-            if not class_pays_df.empty:
-                pending_students_df = pending_students_df.merge(
-                    class_pays_df[["student_id", "status", "amount"]],
-                    on="student_id",
-                    how="left"
-                )
-                pending_students_df["Payment Status"] = pending_students_df["status"].fillna("Not Recorded (Pending)")
-            else:
-                pending_students_df["Payment Status"] = "Not Recorded (Pending)"
-
-            pending_students_df["Bonus Requested?"] = pending_students_df["student_id"].apply(
-                lambda x: "Yes (Bonus / Extra Days)" if x in bonus_ids else "No"
-            )
-            pending_display_df = pending_students_df[
-                ["student_id", "student_name", "parent_name", "parent_phone", "Payment Status", "Bonus Requested?"]
-            ]
-
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Total Students", len(class_students_df))
-            m2.metric("✅ Paid", len(paid_list_df))
-            m3.metric("⏳ Pending / Not Paid", len(pending_display_df))
-            m4.metric("🎁 Bonus / Extra Days", len(class_bonus_df))
+            m1.metric("Total Students", len(all_class_students))
+            m2.metric("✅ Paid", len(paid_students_df))
+            m3.metric("⏳ Pending / Not Paid", len(pending_students_df))
+            m4.metric("🎁 Bonus / Extra Days", len(bonus_students_df))
 
             st.divider()
 
-                       st.markdown(f"### ✅ Paid Students — {view_class} ({view_month})")
-            if paid_list_df.empty:
-                st.info(f"No students have paid yet in {view_class} for {view_month}.")
+            st.markdown(f"### ✅ Paid Students — {view_class} ({view_month})")
+            if paid_students_df.empty:
+                st.info(f"No students recorded as Paid in {view_class} for {view_month} yet.")
             else:
-                st.dataframe(paid_list_df, use_container_width=True)
+                st.dataframe(paid_students_df, use_container_width=True)
 
             st.markdown(f"### ⏳ Pending / Remained Not Paid — {view_class} ({view_month})")
-            if pending_display_df.empty:
-                st.success(f"All students in {view_class} have paid for {view_month}!")
-            else:
-                st.dataframe(pending_display_df, use_container_width=True)
-
-            st.markdown(f"### 🎁 Bonus / Extra Days Requested — {view_class} ({view_month})")
-            if class_bonus_df.empty:
-                st.info(f"No bonus or extra days requests recorded for {view_class} in {view_month}.")
-            else:
-                st.dataframe(
-                    class_bonus_df[["bonus_id", "student_name", "extra_days", "promised_pay_date", "reason", "bonus_status", "recorded_by"]],
-                    use_container_width=True
-                )
-
-            with st.expander(f"➕ Record Bonus / Extra Days Request for {view_class} ({view_month})"):
-                if pending_display_df.empty:
-                    st.info("All students in this class have already paid.")
-                else:
-                    bonus_student_map = {
-                        f"{r['student_name']} (ID #{r['student_id']})": int(r["student_id"])
-                        for _, r in pending_display_df.iterrows()
-                    }
-                    with st.form("bonus_request_form"):
-                        b_student_label = st.selectbox("Select Student (Pending Payment)", list(bonus_student_map.keys()))
-                        bc1, bc2 = st.columns(2)
-                        extra_days = bc1.number_input("Extra Days Requested", min_value=1, max_value=60, value=7, step=1)
-                        promised_date = bc2.date_input("Promised Payment Date", value=datetime.date.today() + datetime.timedelta(days=7))
-                        bonus_reason = st.text_input("Reason / Parent Request Note", placeholder="e.g., Parent requested 7 extra days until salary...")
-
-                        if st.form_submit_button("💾 Save Bonus / Extra Days Request", use_container_width=True):
-                            b_sid = bonus_student_map[b_student_label]
-                            cur = conn.cursor()
-                            cur.execute("""
-                                INSERT INTO payment_bonus_requests (student_id, month_year, extra_days, promised_pay_date, reason, status, recorded_by)
-                                VALUES (%s, %s, %s, %s, %s, 'Active', %s)
-                                ON CONFLICT (student_id, month_year)
-                                DO UPDATE SET
-                                    extra_days = EXCLUDED.extra_days,
-                                    promised_pay_date = EXCLUDED.promised_pay_date,
-                                    reason = EXCLUDED.reason,
-                                    status = 'Active',
-                                    recorded_by = EXCLUDED.recorded_by
-                            """, (b_sid, view_month, int(extra_days), str(promised_date), bonus_reason.strip(), st.session_state.user_name))
-                            conn.commit()
-                            st.success(f"Bonus / extra days recorded for **{b_student_label}** ({view_month})!")
-                            st.rerun()
-
-    # -------------------- ROOM 3: PAYMENT RECORDS --------------------
-    with tab3:
-        st.subheader("📑 All Payment Records")
-        c1, c2 = st.columns(2)
-        filter_month = c1.selectbox("Filter by Month", ["All"] + PAYMENT_MONTHS, key="filter_pay_month")
-        filter_status = c2.selectbox("Filter by Status", ["All"] + PAYMENT_STATUS, key="filter_pay_status")
-
-        query = """
-            SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date, p.recorded_by
-            FROM payments p
-            JOIN students s ON p.student_id = s.student_id
-            WHERE 1=1
-        """
-        params = []
-        if filter_month != "All":
-            query += " AND p.month_year = %s"
-            params.append(filter_month)
-        if filter_status != "All":
-            query += " AND p.status = %s"
-            params.append(filter_status)
-
-        query += " ORDER BY p.month_year DESC, s.grade, s.student_name"
-        pay_df = read_sql(query, params=params if params else None)
-        st.dataframe(pay_df, use_container_width=True)
-
     # -------------------- ROOM 4: PETTY CASH & MONTHLY EXPENSES --------------------
     with tab4:
         st.subheader("💸 Petty Cash & Monthly Expenses Room")
         exp_month = st.selectbox("Select Month", PAYMENT_MONTHS, key="petty_cash_month")
 
         collected_df = read_sql(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE TRIM(month_year)=TRIM(%s) AND LOWER(TRIM(status))='paid'",
             params=(exp_month,)
         )
         month_collected = float(collected_df["total"].sum())
 
         expenses_sum_df = read_sql(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE month_year=%s",
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE TRIM(month_year)=TRIM(%s)",
             params=(exp_month,)
         )
         month_expenses = float(expenses_sum_df["total"].sum())
@@ -1315,7 +1249,7 @@ elif menu == "Payments":
                         INSERT INTO expenses (month_year, budget_line, amount, description, expense_date, recorded_by)
                         VALUES (%s, %s, %s, %s, %s, %s)
                     """, (
-                        exp_month,
+                        exp_month.strip(),
                         sel_budget_line,
                         float(exp_amount),
                         exp_desc.strip(),
@@ -1335,7 +1269,7 @@ elif menu == "Payments":
         month_exp_df = read_sql("""
             SELECT expense_id, budget_line, amount, description, expense_date, recorded_by
             FROM expenses
-            WHERE month_year=%s
+            WHERE TRIM(month_year)=TRIM(%s)
             ORDER BY expense_id DESC
         """, params=(exp_month,))
 
@@ -1348,7 +1282,7 @@ elif menu == "Payments":
                 with st.expander("🗑️ Delete an Expense Entry"):
                     del_exp_id = st.number_input("Enter Expense ID to Delete", min_value=1, step=1, key="del_exp_id")
                     if st.button("Delete Expense", key="btn_del_exp"):
-                        conn.execute("DELETE FROM expenses WHERE expense_id=%s AND month_year=%s", (int(del_exp_id), exp_month))
+                        conn.execute("DELETE FROM expenses WHERE expense_id=%s AND TRIM(month_year)=TRIM(%s)", (int(del_exp_id), exp_month))
                         conn.commit()
                         st.success(f"Expense #{int(del_exp_id)} deleted and balance restored.")
                         st.rerun()
@@ -1359,19 +1293,19 @@ elif menu == "Payments":
         bud_month = st.selectbox("Select Month to Plan / Review", PAYMENT_MONTHS, key="budget_plan_month")
 
         b_coll_df = read_sql(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE month_year=%s AND status='Paid'",
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE TRIM(month_year)=TRIM(%s) AND LOWER(TRIM(status))='paid'",
             params=(bud_month,)
         )
         b_collected = float(b_coll_df["total"].sum())
 
         b_exp_df = read_sql(
-            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE month_year=%s",
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE TRIM(month_year)=TRIM(%s)",
             params=(bud_month,)
         )
         b_spent = float(b_exp_df["total"].sum())
 
         b_plan_df = read_sql(
-            "SELECT COALESCE(SUM(planned_amount), 0) AS total FROM monthly_budgets WHERE month_year=%s",
+            "SELECT COALESCE(SUM(planned_amount), 0) AS total FROM monthly_budgets WHERE TRIM(month_year)=TRIM(%s)",
             params=(bud_month,)
         )
         b_planned_total = float(b_plan_df["total"].sum())
@@ -1400,18 +1334,18 @@ elif menu == "Payments":
                         planned_amount = EXCLUDED.planned_amount,
                         notes = EXCLUDED.notes,
                         updated_by = EXCLUDED.updated_by
-                """, (bud_month, plan_line, float(plan_amt), plan_note.strip(), st.session_state.user_name))
+                """, (bud_month.strip(), plan_line, float(plan_amt), plan_note.strip(), st.session_state.user_name))
                 conn.commit()
                 st.success(f"Saved budget plan of **{plan_amt:,.0f} RWF** for **{plan_line}** ({bud_month})!")
                 st.rerun()
 
         st.subheader(f"Budget vs. Actual Expenses Breakdown — {bud_month}")
         planned_rows = read_sql(
-            "SELECT budget_line, planned_amount, notes FROM monthly_budgets WHERE month_year=%s",
+            "SELECT budget_line, planned_amount, notes FROM monthly_budgets WHERE TRIM(month_year)=TRIM(%s)",
             params=(bud_month,)
         )
         actual_rows = read_sql(
-            "SELECT budget_line, COALESCE(SUM(amount), 0) AS actual_spent FROM expenses WHERE month_year=%s GROUP BY budget_line",
+            "SELECT budget_line, COALESCE(SUM(amount), 0) AS actual_spent FROM expenses WHERE TRIM(month_year)=TRIM(%s) GROUP BY budget_line",
             params=(bud_month,)
         )
 
@@ -1438,29 +1372,29 @@ elif menu == "Payments":
         st.subheader("All-Months Financial Overview (Collected vs. Expenses)")
         all_months_overview = read_sql("""
             WITH months AS (
-                SELECT DISTINCT month_year FROM payments
+                SELECT DISTINCT TRIM(month_year) AS month_year FROM payments
                 UNION
-                SELECT DISTINCT month_year FROM expenses
+                SELECT DISTINCT TRIM(month_year) AS month_year FROM expenses
                 UNION
-                SELECT DISTINCT month_year FROM monthly_budgets
+                SELECT DISTINCT TRIM(month_year) AS month_year FROM monthly_budgets
             ),
             p_tot AS (
-                SELECT month_year, COALESCE(SUM(amount), 0) AS collected
+                SELECT TRIM(month_year) AS month_year, COALESCE(SUM(amount), 0) AS collected
                 FROM payments
-                WHERE status = 'Paid'
-                GROUP BY month_year
+                WHERE LOWER(TRIM(status)) = 'paid'
+                GROUP BY TRIM(month_year)
             ),
             e_tot AS (
-                SELECT month_year, COALESCE(SUM(amount), 0) AS expenses
+                SELECT TRIM(month_year) AS month_year, COALESCE(SUM(amount), 0) AS expenses
                 FROM expenses
-                GROUP BY month_year
+                GROUP BY TRIM(month_year)
             ),
             b_tot AS (
-                SELECT month_year, COALESCE(SUM(planned_amount), 0) AS budgeted
+                SELECT TRIM(month_year) AS month_year, COALESCE(SUM(planned_amount), 0) AS budgeted
                 FROM monthly_budgets
-                GROUP BY month_year
+                GROUP BY TRIM(month_year)
             )
-            SELECT
+                        SELECT
                 m.month_year AS "Month",
                 COALESCE(p.collected, 0) AS "Collected (RWF)",
                 COALESCE(b.budgeted, 0) AS "Planned Budget (RWF)",
@@ -1472,11 +1406,53 @@ elif menu == "Payments":
             LEFT JOIN b_tot b ON m.month_year = b.month_year
             ORDER BY m.month_year DESC
         """)
-        if not all_months_overview.empty:
+        if all_months_overview.empty:
+            st.info("No financial records across months yet.")
+        else:
             st.dataframe(all_months_overview, use_container_width=True)
 
     # -------------------- ROOM 6: UPDATE PAYMENT STATUS --------------------
     with tab6:
+        st.subheader("✏️ Update Existing Payment Record")
+        all_pays = read_sql("""
+            SELECT p.payment_id, s.student_name, s.grade, p.month_year, p.amount, p.status, p.paid_date
+            FROM payments p
+            JOIN students s ON p.student_id = s.student_id
+            ORDER BY p.payment_id DESC
+        """)
+
+        if all_pays.empty:
+            st.info("No payment records available to update.")
+        else:
+            pay_options = {
+                f"#{r['payment_id']} | {r['student_name']} ({r['grade']}) - {r['month_year']} [{r['status']}]": r
+                for _, r in all_pays.iterrows()
+            }
+            sel_pay_label = st.selectbox("Select Payment Record", list(pay_options.keys()))
+            rec = pay_options[sel_pay_label]
+
+            with st.form("edit_payment_form"):
+                c1, c2 = st.columns(2)
+                upd_amount = c1.number_input("Amount (RWF)", min_value=0, value=int(rec["amount"]), step=500)
+                upd_status = c2.selectbox(
+                    "New Status",
+                    PAYMENT_STATUS,
+                    index=PAYMENT_STATUS.index(rec["status"]) if rec["status"] in PAYMENT_STATUS else 0
+                )
+                upd_date = st.date_input("Payment Date", value=datetime.date.today())
+
+                if st.form_submit_button("💾 Update Payment", use_container_width=True):
+                    conn.execute(
+                        "UPDATE payments SET amount=%s, status=%s, paid_date=%s, recorded_by=%s WHERE payment_id=%s",
+                        (upd_amount, upd_status, str(upd_date), st.session_state.user_name, int(rec["payment_id"]))
+                    )
+                    conn.commit()
+                    st.success("✅ Payment record updated!")
+                    st.rerun()
+
+    conn.close()
+
+
 # ====================== REPORT CARDS ======================
 elif menu == "Report Cards":
     st.header("📄 Report Cards")
